@@ -1,0 +1,13 @@
+# Private plate data and generated results
+plates.txt
+checked_plates.txt
+plate_results.csv
+plate_checker_debug/
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# macOS
+.DS_Store
