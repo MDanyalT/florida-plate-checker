@@ -1,25 +1,93 @@
-# Private plate data and generated results
-plates.txt
-checked_plates.txt
-plate_results.csv
-plate_checker_debug/
-data/*.db
-data/*.db-*
-user_data/
-.runtime/
-setup_logs/
-dist/
+# -----------------------------------------------------------------------------
+# Private application data
+# -----------------------------------------------------------------------------
+/user_data/
+/data/*
+!/data/.gitkeep
+/exports/
+/backups/
+/debug/
+/plate_checker_debug/
+/screenshots/
 
-# Python
-.venv/
-__pycache__/
-*.pyc
-.pytest_cache/
+# Personal plate inputs and generated results
+/plates.txt
+/checked_plates.txt
+/plate_results.csv
+/plate_results_*.csv
+/*-plate-results.csv
+/*-plate-history.csv
+
+# SQLite databases, journals, and local backup copies
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+*.sqlite-*
+*.sqlite3-*
+*.db.bak
+*.db.backup
+
+# Local environment and secret files. Keep the public template tracked.
 .env
+.env.*
+!.env.example
+.envrc
+*.pem
+*.key
+*.p12
+*.pfx
+credentials*.json
+secrets*.json
+service-account*.json
 
-# macOS
-.DS_Store
+# Runtime state, logs, generated releases, and temporary archives
+/.runtime/
+/setup_logs/
+/dist/
+*.pid
+*.log
+*.tmp
+*.temp
+*.bak
+*.backup
+*.zip.tmp
 
-# Local editor/runtime leftovers
+# Playwright and test output
+/playwright-report/
+/test-results/
+/blob-report/
+/traces/
+/videos/
+.coverage
+.coverage.*
+/htmlcov/
+/coverage.xml
+
+# Python environments and caches
+/.venv/
+/venv/
+/env/
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+.nox/
+
+# Editors and local tooling
+/.idea/
+/.vscode/
+*.swp
+*.swo
+*~
 .Rhistory
 .gitignore.save
+
+# Operating-system metadata
+.DS_Store
+._*
+Thumbs.db
+Desktop.ini
