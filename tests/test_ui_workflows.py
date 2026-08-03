@@ -193,3 +193,11 @@ def test_header_has_no_redundant_mobile_menu_toggle() -> None:
     assert "nav-toggle" not in styles
     assert "wireNavigation" not in script
     assert "data-nav-toggle" not in script
+
+
+def test_dashboard_exposes_local_backup_action() -> None:
+    dashboard = (PROJECT_ROOT / "templates" / "dashboard.html").read_text()
+    routes_text = (PROJECT_ROOT / "app" / "routes.py").read_text()
+    assert "Back up my data" in dashboard
+    assert 'action="/backups/create"' in dashboard
+    assert '@router.post("/backups/create")' in routes_text

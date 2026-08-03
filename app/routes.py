@@ -9,13 +9,14 @@ from typing import Any
 from urllib.parse import quote, urlencode
 
 from fastapi import APIRouter, Depends, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import Select, func, select
 from sqlalchemy.orm import Session, selectinload
 from starlette.datastructures import UploadFile
 
 from app.checker_service import CheckerService
+from app.data_paths import create_database_backup
 from app.database import SessionLocal, get_db
 from app.exporter import rows_to_csv
 from app.generator import generate_candidates
@@ -152,6 +153,18 @@ def _render_dashboard(session: Session, request: Request, **extra: Any) -> HTMLR
 @router.get("/", response_class=HTMLResponse)
 def dashboard(request: Request, session: Session = Depends(get_db)) -> HTMLResponse:
     return _render_dashboard(session, request)
+
+
+@router.post("/backups/create")
+def create_backup() -> FileResponse:
+    """Create and download a consistent local copy of the research database."""
+
+    backup_path = create_database_backup(settings.database_path, settings.backups_directory)
+    return FileResponse(
+        backup_path,
+        media_type="application/vnd.sqlite3",
+        filename=backup_path.name,
+    )
 
 
 @router.post("/imports/manual/preview", response_class=HTMLResponse)

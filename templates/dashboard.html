@@ -12,8 +12,30 @@
     <a class="button primary" href="#add-plates">Add plates</a>
     <a class="button secondary" href="/generator">Generate plates</a>
     <a class="button ghost" href="/results?never_checked=1">Check untested plates</a>
+    <form class="inline-form" action="/backups/create" method="post">
+      <button class="button ghost" type="submit">Back up my data</button>
+    </form>
   </div>
 </section>
+
+{% if stats.total == 0 %}
+<section class="welcome-panel" data-first-run-welcome hidden aria-labelledby="welcome-title">
+  <div>
+    <span class="eyebrow">Welcome to Plate Research</span>
+    <h2 id="welcome-title">Your first plate search takes four simple steps</h2>
+  </div>
+  <ol class="welcome-steps">
+    <li><strong>Add or generate plate ideas.</strong><span>Start with a short list you would genuinely consider.</span></li>
+    <li><strong>Choose Add and check now.</strong><span>The app saves the ideas and starts a responsible FLHSMV check.</span></li>
+    <li><strong>Keep Chromium and the launcher window open.</strong><span>Complete any CAPTCHA yourself if FLHSMV asks.</span></li>
+    <li><strong>View results in the Plate library.</strong><span>Your notes, favorites, and check history stay on this computer.</span></li>
+  </ol>
+  <div class="welcome-actions">
+    <a class="button primary" href="#add-plates">Add my first plates</a>
+    <button class="text-button" type="button" data-dismiss-welcome>Dismiss this guide</button>
+  </div>
+</section>
+{% endif %}
 
 <section class="stats-grid" aria-label="Plate statistics">
   <article class="stat-card primary-stat"><span>Total plates</span><strong id="stat-total">{{ stats.total }}</strong><small>unique candidates</small></article>

@@ -5,6 +5,10 @@ plate_results.csv
 plate_checker_debug/
 data/*.db
 data/*.db-*
+user_data/
+.runtime/
+setup_logs/
+dist/
 
 # Python
 .venv/

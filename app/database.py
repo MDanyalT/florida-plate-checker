@@ -10,6 +10,7 @@ from sqlalchemy import create_engine, event
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.data_paths import prepare_data_storage
 from app.models import Base, CheckHistory, CheckingRun, Plate, utc_now
 from app.settings import settings
 
@@ -32,6 +33,11 @@ def create_sqlite_engine(path: Path) -> Engine:
     return engine
 
 
+prepare_data_storage(
+    data_directory=settings.data_directory,
+    database_path=settings.database_path,
+    legacy_database_path=settings.legacy_database_path,
+)
 engine = create_sqlite_engine(settings.database_path)
 SessionLocal = sessionmaker(bind=engine, expire_on_commit=False, autoflush=False, future=True)
 
@@ -84,4 +90,3 @@ def apply_check_result(
         )
     )
     return changed
-

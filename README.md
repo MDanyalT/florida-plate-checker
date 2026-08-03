@@ -1,5 +1,35 @@
 # Florida Plate Research
 
+## Quick start
+
+Florida Plate Research runs only on your own computer; it is not an online service. Your plate ideas, results, notes, favorites, and history stay local unless you choose to copy or share them. Internet access is needed during setup and whenever you check the official FLHSMV website.
+
+### macOS
+
+1. Download **Florida-Plate-Research-macOS.zip** from GitHub Releases.
+2. Extract the ZIP.
+3. Double-click **Setup Plate Research.command**.
+4. If macOS blocks it, right-click the setup file, choose **Open**, then confirm **Open**. Do not disable Gatekeeper.
+5. After setup, double-click **Open Plate Research.command**.
+6. The dashboard opens automatically in your default browser.
+7. Keep the Terminal window open while using the app. Closing it or pressing Control+C stops the local app.
+
+### Windows
+
+1. Download **Florida-Plate-Research-Windows.zip** from GitHub Releases.
+2. Extract the ZIP.
+3. Double-click **Setup Plate Research.bat**.
+4. Approve a normal Windows security prompt only when the ZIP came from the official repository.
+5. After setup, double-click **Open Plate Research.bat**.
+6. The dashboard opens automatically in your default browser.
+7. Keep the command window open while using the app. Closing it or pressing Control+C stops the local app.
+
+The first setup may take several minutes because it creates a private Python environment and installs Chromium. Python 3.11 or newer must already be installed from [python.org](https://www.python.org/downloads/). During a plate check, visible Chromium may open. If FLHSMV shows a CAPTCHA, complete it yourself; the app never bypasses human verification.
+
+Use **Stop Plate Research** only when you need to stop a copy whose launcher window is unavailable. It validates the saved process first and never broadly stops other Python programs.
+
+## About the application
+
 Florida Plate Research is a private, local dashboard for building and checking Florida personalized-license-plate shortlists. It stores candidates, current availability, full check history, favorites, notes, and status changes in a local SQLite database.
 
 Availability checks use a **visible Playwright Chromium browser** and the official [FLHSMV Personalized Plate Inquiry](https://services.flhsmv.gov/MVCheckPersonalPlate/PlateInquiryView.aspx). The application does not replay ASP.NET requests directly and does not bypass CAPTCHA, rate limits, blocks, or other access controls.
@@ -26,7 +56,7 @@ The first version intentionally has no parallel checking, direct HTTP form repla
 - A normal desktop session capable of showing Chromium
 - Internet access while checking plates or installing Chromium
 
-## macOS installation
+## Developer installation on macOS
 
 Open Terminal in this project folder and run:
 
@@ -40,7 +70,7 @@ python -m playwright install chromium
 
 If `python3.11` is unavailable but `python3 --version` reports 3.11 or newer, use `python3 -m venv .venv` for the first command.
 
-## Windows installation
+## Developer installation on Windows
 
 Install Python 3.11 or newer from [python.org](https://www.python.org/downloads/) and select **Add Python to PATH**. Open PowerShell in the project folder and run:
 
@@ -140,18 +170,36 @@ Exports are generated locally from SQLite and contain timestamps, notes, statuse
 The application stores its database at:
 
 ```text
-data/plates.db
+user_data/plates.db
 ```
 
-Your plate lists, notes, history, generated CSV files, and debug captures stay on this computer unless you move or share them. Git ignores the database, `plates.txt`, CLI result files, `.env`, and debug artifacts.
+It also keeps backups, exports, and debugging captures under `user_data/`. Git and the release builder exclude that entire folder. If an older `data/plates.db` exists and the new database does not, the app uses SQLite's backup mechanism to copy it safely into `user_data/plates.db`; the original is retained as a fallback. A custom `DATABASE_PATH` remains supported.
 
-To back up your research, stop the application and copy `data/plates.db`. To reset the dashboard, stop the application and move that file somewhere safe; a new empty database is created on the next launch.
+Choose **Back up my data** on the Dashboard to create a timestamped SQLite copy in `user_data/backups/` and download the same copy through your browser. To reset the dashboard, stop the application and move `user_data/plates.db` somewhere safe; a new empty database is created on the next launch.
+
+## Safe updates for ZIP installations
+
+Double-click **Update Plate Research** for your operating system. It creates a database backup when setup is available, then shows the safe manual update steps. Download the newest release into a new folder, copy your existing `user_data/` folder into it, and run the new setup launcher. Never replace or delete `user_data/` during an update.
+
+The updater intentionally does not assume Git is installed and does not download or overwrite application files automatically.
+
+## Build the release ZIP files
+
+From a developer environment, run:
+
+```bash
+python scripts/build_releases.py
+```
+
+The script creates `dist/Florida-Plate-Research-macOS.zip` and `dist/Florida-Plate-Research-Windows.zip`. The archives contain shared application files plus only the correct operating-system launchers. They exclude `.git`, `.venv`, `.env`, tests, databases, personal inputs, results, caches, exports, backups, and debug files. Python and Chromium binaries are not bundled.
 
 ## Optional configuration
 
 Copy `.env.example` to `.env` and edit only the values you need. Safe defaults include:
 
 ```text
+DATA_DIRECTORY=user_data
+DATABASE_PATH=user_data/plates.db
 HEADLESS=false
 MIN_DELAY_SECONDS=5
 MAX_DELAY_SECONDS=10
@@ -207,7 +255,7 @@ Launch `python app.py` from a normal macOS Terminal or Windows PowerShell deskto
 
 ### No input fields detected or result parsing fails
 
-The FLHSMV page may have changed. The run stops and writes a screenshot and HTML snapshot to `plate_checker_debug/`. The verified selectors are in `app/checker_service.py`: plate fields are currently within `#inquiry`, Submit uses `#MainContent_btnSubmit`, and each result is paired with the text input in the same table row.
+The FLHSMV page may have changed. The run stops and writes a screenshot and HTML snapshot to `user_data/debug/`. The verified selectors are in `app/checker_service.py`: plate fields are currently within `#inquiry`, Submit uses `#MainContent_btnSubmit`, and each result is paired with the text input in the same table row.
 
 ### Timeout
 

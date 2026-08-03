@@ -134,6 +134,25 @@
     refresh();
   }
 
+  function wireFirstRunWelcome() {
+    const panel = document.querySelector('[data-first-run-welcome]');
+    if (!panel) return;
+    const storageKey = 'plate-research-welcome-dismissed';
+    try {
+      panel.hidden = window.localStorage.getItem(storageKey) === '1';
+    } catch (_) {
+      panel.hidden = false;
+    }
+    panel.querySelector('[data-dismiss-welcome]')?.addEventListener('click', () => {
+      panel.hidden = true;
+      try {
+        window.localStorage.setItem(storageKey, '1');
+      } catch (_) {
+        // Dismissal still works for this page when browser storage is unavailable.
+      }
+    });
+  }
+
   function updateRun(run) {
     const panel = document.querySelector('#live-run');
     const headerIndicator = document.querySelector('#header-run-indicator');
@@ -273,6 +292,7 @@
   wireSelections();
   wireConfirmations();
   wireGeneratorFields();
+  wireFirstRunWelcome();
   pollRun();
   window.setInterval(pollRun, 2000);
 })();

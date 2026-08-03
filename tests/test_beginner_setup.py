@@ -1,0 +1,175 @@
+from __future__ import annotations
+
+import importlib.util
+import os
+import sqlite3
+import threading
+import zipfile
+from pathlib import Path
+from types import ModuleType
+
+from fastapi.testclient import TestClient
+from sqlalchemy import inspect
+
+from app import launcher_utils, settings as settings_module
+from app.data_paths import create_database_backup, migrate_legacy_database
+from app.database import create_sqlite_engine, init_db
+
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+
+def load_server_module() -> ModuleType:
+    spec = importlib.util.spec_from_file_location(
+        "plate_research_server_for_tests", PROJECT_ROOT / "app.py"
+    )
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_health_endpoint() -> None:
+    module = load_server_module()
+    with TestClient(module.app) as client:
+        response = client.get("/health")
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
+
+
+def test_first_run_database_initialization(tmp_path: Path) -> None:
+    database = tmp_path / "new-user" / "plates.db"
+    engine = create_sqlite_engine(database)
+    init_db(engine)
+    assert database.exists()
+    assert {"plates", "checking_runs", "check_history"}.issubset(inspect(engine).get_table_names())
+    engine.dispose()
+
+
+def test_legacy_database_migration_and_existing_destination_preservation(
+    tmp_path: Path,
+) -> None:
+    legacy = tmp_path / "data" / "plates.db"
+    destination = tmp_path / "user_data" / "plates.db"
+    legacy.parent.mkdir()
+    with sqlite3.connect(legacy) as connection:
+        connection.execute("CREATE TABLE sample (value TEXT)")
+        connection.execute("INSERT INTO sample VALUES ('legacy')")
+
+    assert migrate_legacy_database(legacy, destination) is True
+    with sqlite3.connect(destination) as connection:
+        assert connection.execute("SELECT value FROM sample").fetchone() == ("legacy",)
+
+    with sqlite3.connect(destination) as connection:
+        connection.execute("UPDATE sample SET value='current'")
+    with sqlite3.connect(legacy) as connection:
+        connection.execute("UPDATE sample SET value='changed legacy'")
+
+    assert migrate_legacy_database(legacy, destination) is False
+    with sqlite3.connect(destination) as connection:
+        assert connection.execute("SELECT value FROM sample").fetchone() == ("current",)
+
+
+def test_data_path_configuration(monkeypatch) -> None:
+    monkeypatch.setenv("DATABASE_PATH", "custom/location.db")
+    assert settings_module._database_path() == PROJECT_ROOT / "custom" / "location.db"
+    monkeypatch.setenv("DATABASE_PATH", "data/plates.db")
+    assert settings_module._database_path() == settings_module.DATA_DIRECTORY / "plates.db"
+
+
+def test_backup_creation_is_a_readable_sqlite_copy(tmp_path: Path) -> None:
+    source = tmp_path / "plates.db"
+    with sqlite3.connect(source) as connection:
+        connection.execute("CREATE TABLE sample (value TEXT)")
+        connection.execute("INSERT INTO sample VALUES ('kept')")
+    backup = create_database_backup(source, tmp_path / "backups")
+    assert backup.parent == tmp_path / "backups"
+    assert backup.name.startswith("plate-research-")
+    with sqlite3.connect(backup) as connection:
+        assert connection.execute("SELECT value FROM sample").fetchone() == ("kept",)
+
+
+def test_browser_opening_guard(monkeypatch) -> None:
+    module = load_server_module()
+    opened = threading.Event()
+
+    class Response:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+    monkeypatch.setenv("OPEN_BROWSER", "true")
+    monkeypatch.delenv("PLATE_RESEARCH_BROWSER_OPENED", raising=False)
+    monkeypatch.setattr(module.urllib.request, "urlopen", lambda *_args, **_kwargs: Response())
+    module._browser_opened = False
+    assert module.open_browser_once(opener=lambda _url: opened.set(), startup_timeout=0.2)
+    assert opened.wait(1)
+    assert module.open_browser_once(opener=lambda _url: None, startup_timeout=0.2) is False
+
+
+def test_pid_file_helpers_and_project_validation(tmp_path: Path, monkeypatch) -> None:
+    pid_file = tmp_path / ".runtime" / "plate-research.pid"
+    launcher_utils.write_pid_file(pid_file, 4321)
+    assert launcher_utils.read_pid_file(pid_file) == 4321
+    assert launcher_utils.remove_pid_file(pid_file, expected_pid=9999) is False
+    assert launcher_utils.remove_pid_file(pid_file, expected_pid=4321) is True
+
+    app_path = tmp_path / "app.py"
+    assert launcher_utils.is_project_process(os.getpid(), tmp_path, f'python "{app_path}"')
+    assert not launcher_utils.is_project_process(os.getpid(), tmp_path, "python unrelated.py")
+
+    launcher_utils.write_pid_file(pid_file, 999999)
+    monkeypatch.setattr(launcher_utils, "process_exists", lambda _pid: False)
+    assert launcher_utils.stop_project_process(pid_file, tmp_path) == "stale"
+    assert not pid_file.exists()
+    assert not pid_file.with_suffix(".stop").exists()
+
+
+def test_first_run_copy_is_neutral_and_dismissible() -> None:
+    template = (PROJECT_ROOT / "templates" / "dashboard.html").read_text(encoding="utf-8")
+    script = (PROJECT_ROOT / "static" / "app.js").read_text(encoding="utf-8")
+    assert "Add or generate plate ideas" in template
+    assert "Choose Add and check now" in template
+    assert "Keep Chromium and the launcher window open" in template
+    assert "View results in the Plate library" in template
+    assert "data-dismiss-welcome" in template
+    assert "plate-research-welcome-dismissed" in script
+
+
+def test_launchers_are_project_scoped_and_release_archives_are_clean(tmp_path: Path) -> None:
+    launchers = [
+        PROJECT_ROOT / "Setup Plate Research.command",
+        PROJECT_ROOT / "Open Plate Research.command",
+        PROJECT_ROOT / "Stop Plate Research.command",
+        PROJECT_ROOT / "Setup Plate Research.bat",
+        PROJECT_ROOT / "Open Plate Research.bat",
+        PROJECT_ROOT / "Stop Plate Research.bat",
+    ]
+    launcher_text = "\n".join(path.read_text(encoding="utf-8") for path in launchers)
+    assert "killall" not in launcher_text.lower()
+    assert "taskkill /im python" not in launcher_text.lower()
+    assert "plate-research.pid" in launcher_text
+
+    spec = importlib.util.spec_from_file_location(
+        "build_releases_for_tests", PROJECT_ROOT / "scripts" / "build_releases.py"
+    )
+    assert spec and spec.loader
+    builder = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(builder)
+    mac_zip = tmp_path / "mac.zip"
+    windows_zip = tmp_path / "windows.zip"
+    builder.build_archive(mac_zip, builder.MAC_LAUNCHERS, macos=True)
+    builder.build_archive(windows_zip, builder.WINDOWS_LAUNCHERS, macos=False)
+    with zipfile.ZipFile(mac_zip) as archive:
+        names = set(archive.namelist())
+        assert "Setup Plate Research.command" in names
+        assert "Setup Plate Research.bat" not in names
+        assert all(not name.startswith(("tests/", "user_data/", ".venv/")) for name in names)
+    with zipfile.ZipFile(windows_zip) as archive:
+        names = set(archive.namelist())
+        assert "Setup Plate Research.bat" in names
+        assert "Setup Plate Research.command" not in names
