@@ -1,56 +1,82 @@
 {% extends "base.html" %}
-{% block title %}Generator · Florida Plate Research{% endblock %}
+{% block title %}Generate plates · Florida Plate Research{% endblock %}
 {% block content %}
 <section class="page-heading">
-  <div><span class="eyebrow">Explore structured ideas</span><h1>Plate generator</h1><p>Preview combinations first. Nothing is saved or checked until you explicitly choose it.</p></div>
+  <div><span class="eyebrow">Explore structured ideas</span><h1>Generate plates</h1><p>Build a preview in three focused steps. Generating a preview does not save or check anything.</p></div>
 </section>
 
-<section class="generator-layout">
-  <form action="/generator/preview" method="post" class="panel generator-form" data-generator-form>
+<form action="/generator/preview" method="post" class="generator-steps" data-generator-form>
+  <section class="panel generator-step">
     <div class="panel-heading"><div><span class="eyebrow">Step 1</span><h2>Choose a pattern</h2></div><span class="pill">{{ max_plate_length }} char max</span></div>
-    <label for="pattern_type">Pattern type</label>
-    <select id="pattern_type" name="pattern_type" data-pattern-select>
-      <option value="single_letter_numbers" {% if form_values.get('pattern_type', 'single_letter_numbers') == 'single_letter_numbers' %}selected{% endif %}>Single letter + numbers · A1000</option>
-      <option value="number_letter" {% if form_values.get('pattern_type') == 'number_letter' %}selected{% endif %}>Number + letter · 786A</option>
-      <option value="prefix_number" {% if form_values.get('pattern_type') == 'prefix_number' %}selected{% endif %}>Prefix + number · TAM786</option>
-      <option value="letter_number_letter" {% if form_values.get('pattern_type') == 'letter_number_letter' %}selected{% endif %}>Letter + number + letter · T7A</option>
-      <option value="repeated_digits" {% if form_values.get('pattern_type') == 'repeated_digits' %}selected{% endif %}>Repeated digits · 7777</option>
-      <option value="mirrored_numbers" {% if form_values.get('pattern_type') == 'mirrored_numbers' %}selected{% endif %}>Mirrored numbers · 7887</option>
-      <option value="sequential_numbers" {% if form_values.get('pattern_type') == 'sequential_numbers' %}selected{% endif %}>Sequential numbers · 12345</option>
-      <option value="two_letters" {% if form_values.get('pattern_type') == 'two_letters' %}selected{% endif %}>Two letters · AA–ZZ</option>
-      <option value="custom_template" {% if form_values.get('pattern_type') == 'custom_template' %}selected{% endif %}>Custom template</option>
-      <option value="keyword_variations" {% if form_values.get('pattern_type') == 'keyword_variations' %}selected{% endif %}>Keyword variations</option>
-    </select>
-    <div class="form-row">
-      <label>Number start<input type="number" name="start" value="{{ form_values.get('start', '0') }}"></label>
-      <label>Number end<input type="number" name="end" value="{{ form_values.get('end', '9') }}"></label>
-      <label>Length<input type="number" name="length" min="1" max="{{ max_plate_length }}" value="{{ form_values.get('length', '4') }}"></label>
+    <div class="pattern-grid" role="radiogroup" aria-label="Plate pattern">
+      {% set selected_pattern = form_values.get('pattern_type', 'single_letter_numbers') %}
+      <label class="pattern-option"><input type="radio" name="pattern_type" value="single_letter_numbers" {% if selected_pattern == 'single_letter_numbers' %}checked{% endif %}><span class="pattern-option__content"><span class="pattern-option__title">Letter then number</span><span class="pattern-option__description">Every letter combined with the selected number range.</span></span><code class="pattern-option__example">A100</code></label>
+      <label class="pattern-option"><input type="radio" name="pattern_type" value="number_letter" {% if selected_pattern == 'number_letter' %}checked{% endif %}><span class="pattern-option__content"><span class="pattern-option__title">Number then letter</span><span class="pattern-option__description">Each selected number followed by every letter A–Z.</span></span><code class="pattern-option__example">100A</code></label>
+      <label class="pattern-option"><input type="radio" name="pattern_type" value="prefix_number" {% if selected_pattern == 'prefix_number' %}checked{% endif %}><span class="pattern-option__content"><span class="pattern-option__title">Prefix and number</span><span class="pattern-option__description">A fixed prefix followed by the selected number range.</span></span><code class="pattern-option__example">FL100</code></label>
+      <label class="pattern-option"><input type="radio" name="pattern_type" value="letter_number_letter" {% if selected_pattern == 'letter_number_letter' %}checked{% endif %}><span class="pattern-option__content"><span class="pattern-option__title">Letters around number</span><span class="pattern-option__description">Every letter pair wrapped around each selected number.</span></span><code class="pattern-option__example">A7B</code></label>
+      <label class="pattern-option"><input type="radio" name="pattern_type" value="repeated_digits" {% if selected_pattern == 'repeated_digits' %}checked{% endif %}><span class="pattern-option__content"><span class="pattern-option__title">Repeated digits</span><span class="pattern-option__description">One digit repeated to the chosen plate length.</span></span><code class="pattern-option__example">7777</code></label>
+      <label class="pattern-option"><input type="radio" name="pattern_type" value="mirrored_numbers" {% if selected_pattern == 'mirrored_numbers' %}checked{% endif %}><span class="pattern-option__content"><span class="pattern-option__title">Mirrored numbers</span><span class="pattern-option__description">Symmetrical number sequences at the chosen length.</span></span><code class="pattern-option__example">7887</code></label>
+      <label class="pattern-option"><input type="radio" name="pattern_type" value="sequential_numbers" {% if selected_pattern == 'sequential_numbers' %}checked{% endif %}><span class="pattern-option__content"><span class="pattern-option__title">Sequential numbers</span><span class="pattern-option__description">Rolling digit sequences at the chosen plate length.</span></span><code class="pattern-option__example">12345</code></label>
+      <label class="pattern-option"><input type="radio" name="pattern_type" value="two_letters" {% if selected_pattern == 'two_letters' %}checked{% endif %}><span class="pattern-option__content"><span class="pattern-option__title">Two letters</span><span class="pattern-option__description">Every two-letter combination from AA through ZZ.</span></span><code class="pattern-option__example">FL</code></label>
+      <label class="pattern-option"><input type="radio" name="pattern_type" value="custom_template" {% if selected_pattern == 'custom_template' %}checked{% endif %}><span class="pattern-option__content"><span class="pattern-option__title">Custom template</span><span class="pattern-option__description">Fixed text combined with letter, digit, and word tokens.</span></span><code class="pattern-option__example">SUN{NN}</code></label>
+      <label class="pattern-option"><input type="radio" name="pattern_type" value="keyword_variations" {% if selected_pattern == 'keyword_variations' %}checked{% endif %}><span class="pattern-option__content"><span class="pattern-option__title">Keyword variations</span><span class="pattern-option__description">Shortened words, numeric suffixes, and substitutions.</span></span><code class="pattern-option__example">BEACH7</code></label>
     </div>
-    <label>Prefix<input type="text" name="prefix" maxlength="{{ max_plate_length }}" value="{{ form_values.get('prefix', 'TAM') }}" placeholder="TAM"></label>
-    <label>Custom template<input type="text" name="template" value="{{ form_values.get('template', '{L}{NN}') }}" placeholder="{WORD}{NN}"></label>
-    <p class="field-help">Placeholders: <code>{L}</code> letter, <code>{N}</code> digit, <code>{NN}</code> two digits, <code>{WORD}</code> supplied word.</p>
-    <label>Template word<input type="text" name="word" value="{{ form_values.get('word', '') }}" placeholder="TAM"></label>
-    <label>Keywords<textarea name="keywords" rows="4" placeholder="TARIQ, TAM, RHM, DANYAL">{{ form_values.get('keywords', '') }}</textarea></label>
-    <label class="check-filter"><input type="checkbox" name="substitutions" value="1" {% if form_values.get('substitutions') %}checked{% endif %}> Add common letter-to-number substitutions (A→4, I→1, O→0)</label>
+  </section>
+
+  <section class="panel generator-step">
+    <div class="panel-heading"><div><span class="eyebrow">Step 2</span><h2>Set the pattern details</h2></div></div>
+    <div class="generator-fields" data-pattern-group data-for="single_letter_numbers,number_letter,prefix_number,letter_number_letter">
+      <p class="field-help">Choose an inclusive number range. Keep it narrow for a manageable preview.</p>
+      <div class="form-row two-columns">
+        <label>Number start<input type="number" name="start" value="{{ form_values.get('start', '0') }}"></label>
+        <label>Number end<input type="number" name="end" value="{{ form_values.get('end', '9') }}"></label>
+      </div>
+    </div>
+    <div class="generator-fields" data-pattern-group data-for="prefix_number">
+      <label>Prefix<input type="text" name="prefix" maxlength="{{ max_plate_length }}" value="{{ form_values.get('prefix', 'FL') }}" placeholder="FL"></label>
+      <p class="field-help">The number is appended exactly as written, so leave room within the {{ max_plate_length }}-character limit.</p>
+    </div>
+    <div class="generator-fields" data-pattern-group data-for="repeated_digits,mirrored_numbers,sequential_numbers">
+      <label>Plate length<input type="number" name="length" min="1" max="{{ max_plate_length }}" value="{{ form_values.get('length', '4') }}"></label>
+    </div>
+    <div class="generator-fields custom-help" data-pattern-group data-for="custom_template">
+      <label>Custom template<input type="text" name="template" value="{{ form_values.get('template', '{WORD}{NN}') }}" placeholder="{WORD}{NN}"></label>
+      <label>Template word<input type="text" name="word" value="{{ form_values.get('word', 'SUN') }}" placeholder="SUN"></label>
+      <div class="supporting-callout"><strong>Template placeholders</strong><p><code>{L}</code> adds one letter, <code>{N}</code> one digit, <code>{NN}</code> two zero-padded digits, and <code>{WORD}</code> the word above. Example: <code>{WORD}{NN}</code> with <code>SUN</code> previews SUN00 through SUN99.</p></div>
+    </div>
+    <div class="generator-fields" data-pattern-group data-for="keyword_variations">
+      <label>Keywords<textarea name="keywords" rows="4" placeholder="SUNSET, BEACH, COAST, ROAD">{{ form_values.get('keywords', 'SUNSET, BEACH, COAST, ROAD') }}</textarea></label>
+      <div class="form-row two-columns">
+        <label>Suffix start<input type="number" name="start" value="{{ form_values.get('start', '0') }}"></label>
+        <label>Suffix end<input type="number" name="end" value="{{ form_values.get('end', '9') }}"></label>
+      </div>
+      <label class="optional-check"><input type="checkbox" name="substitutions" value="1" {% if form_values.get('substitutions') %}checked{% endif %}> Add common letter-to-number substitutions (A→4, I→1, O→0)</label>
+    </div>
+    <div class="generator-fields" data-pattern-group data-for="two_letters">
+      <p class="supporting-callout">This pattern needs no extra settings. It previews all 676 two-letter combinations.</p>
+    </div>
     {% if generator_error %}<p class="inline-error">{{ generator_error }}</p>{% endif %}
     <button class="button primary" type="submit">Preview candidates</button>
-  </form>
-
-  <aside class="panel generator-guide">
-    <span class="eyebrow">Ideas that stay manageable</span><h2>Good research starts narrow.</h2>
-    <p>Try a meaningful prefix with a small number range first. Florida’s site accepts five at a time, with a conservative pause between batches.</p>
-    <ul><li>Generation never starts checking.</li><li>Duplicates and overlength values are removed.</li><li>More than 500 candidates triggers a warning.</li><li>Checking runs are capped at 500 by default.</li></ul>
-  </aside>
-</section>
+  </section>
+</form>
 
 {% if generation %}
-<section class="panel review-panel">
-  <div class="panel-heading"><div><span class="eyebrow">Step 2 · Preview</span><h2>{{ generation.candidates|length }} valid candidates</h2></div><div class="review-counts"><span>{{ generation.total_before_validation }} generated</span><span>{{ generation.duplicate_count }} duplicates removed</span><span class="bad">{{ generation.rejected|length }} rejected</span></div></div>
-  {% if generation.large_warning %}<div class="warning-callout"><strong>Large set:</strong> more than 500 candidates were generated. Import only the focused subset you genuinely intend to research.</div>{% endif %}
+<section class="panel review-panel" id="generator-preview">
+  <div class="panel-heading"><div><span class="eyebrow">Step 3 · Preview and add</span><h2>{{ generation.candidates|length }} valid candidates</h2><p>Previewing does not save or check these plates. Select the candidates you want, then choose an action.</p></div><div class="review-counts"><span>{{ generation.total_before_validation }} generated</span><span>{{ generation.duplicate_count }} duplicates removed</span><span class="bad">{{ generation.rejected|length }} rejected</span></div></div>
+  {% if generation.large_warning %}<div class="warning-callout"><strong>Large set:</strong> more than 500 candidates were generated. Add only the focused subset you genuinely intend to research.</div>{% endif %}
   {% if generation.candidates %}
-  <form action="/generator/import" method="post" data-selection-form data-large-import-form>
+  <form action="/generator/import" method="post" data-selection-form data-large-import-form data-add-check-form data-threshold="{{ large_run_threshold }}">
     <input type="hidden" name="confirm_large" value="no">
-    <div class="selection-toolbar sticky"><label><input type="checkbox" data-select-all checked> Select all</label><span data-selection-count>{{ generation.candidates|length }} selected</span><button class="button primary" type="submit">Import selected</button></div>
+    <div class="selection-toolbar sticky">
+      <label><input type="checkbox" data-select-all checked> Select all</label>
+      <span data-selection-count>{{ generation.candidates|length }} selected</span>
+      <button class="text-button" type="button" data-clear-selection>Clear selection</button>
+      <div class="button-group">
+        <button class="button primary" name="action" value="check_now" type="submit">Add and check selected</button>
+        <button class="button secondary" name="action" value="library" type="submit">Add selected to library</button>
+      </div>
+    </div>
+    <label class="optional-check"><input type="checkbox" name="include_checked" value="1"> Include previously checked plates</label>
     <div class="candidate-grid scroll-grid">
       {% for plate in generation.candidates %}<label class="candidate-chip"><input type="checkbox" name="plates" value="{{ plate }}" checked> <span>{{ plate }}</span></label>{% endfor %}
     </div>

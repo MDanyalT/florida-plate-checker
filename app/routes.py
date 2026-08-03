@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import date, datetime, time, timezone
 from pathlib import Path
 from typing import Any
@@ -43,9 +44,11 @@ templates.env.filters["datetime"] = _format_datetime
 
 
 def _redirect(path: str, message: str, kind: str = "success") -> RedirectResponse:
-    separator = "&" if "?" in path else "?"
+    base_path, marker, fragment = path.partition("#")
+    separator = "&" if "?" in base_path else "?"
+    suffix = f"#{fragment}" if marker else ""
     return RedirectResponse(
-        f"{path}{separator}message={quote(message)}&kind={quote(kind)}",
+        f"{base_path}{separator}message={quote(message)}&kind={quote(kind)}{suffix}",
         status_code=303,
     )
 
@@ -54,7 +57,7 @@ def _safe_return_url(value: str | None, default: str = "/results") -> str:
     return value if value and value.startswith("/") and not value.startswith("//") else default
 
 
-def _dashboard_context(session: Session, request: Request, **extra: Any) -> dict[str, Any]:
+def _dashboard_summary(session: Session) -> dict[str, Any]:
     status_counts = dict(
         session.execute(
             select(Plate.current_status, func.count(Plate.id)).group_by(Plate.current_status)
@@ -68,11 +71,7 @@ def _dashboard_context(session: Session, request: Request, **extra: Any) -> dict
         .order_by(Plate.status_changed_at.desc())
         .limit(8)
     ).all()
-    recent_plates = session.scalars(select(Plate).order_by(Plate.created_at.desc()).limit(8)).all()
-    context: dict[str, Any] = {
-        "request": request,
-        "message": request.query_params.get("message"),
-        "message_kind": request.query_params.get("kind", "success"),
+    return {
         "stats": {
             "total": session.scalar(select(func.count(Plate.id))) or 0,
             "available": status_counts.get("Available", 0),
@@ -89,6 +88,48 @@ def _dashboard_context(session: Session, request: Request, **extra: Any) -> dict
             )
             or 0,
         },
+        "latest_run": (
+            {
+                "id": latest_run.id,
+                "status": latest_run.status,
+                "checked_count": latest_run.checked_count,
+                "total_candidates": latest_run.total_candidates,
+                "available_count": latest_run.available_count,
+                "unavailable_count": latest_run.unavailable_count,
+                "started_at": _format_datetime(latest_run.started_at),
+                "error_message": latest_run.error_message,
+            }
+            if latest_run
+            else None
+        ),
+        "recent_changes": [
+            {
+                "id": plate.id,
+                "plate": plate.normalized_plate,
+                "previous_status": plate.previous_status or "Unknown",
+                "current_status": plate.current_status or "Unknown",
+                "changed_at": _format_datetime(plate.status_changed_at),
+            }
+            for plate in recent_changes
+        ],
+    }
+
+
+def _dashboard_context(session: Session, request: Request, **extra: Any) -> dict[str, Any]:
+    summary = _dashboard_summary(session)
+    latest_run = session.scalar(select(CheckingRun).order_by(CheckingRun.id.desc()).limit(1))
+    recent_changes = session.scalars(
+        select(Plate)
+        .where(Plate.status_changed_at.is_not(None))
+        .order_by(Plate.status_changed_at.desc())
+        .limit(8)
+    ).all()
+    recent_plates = session.scalars(select(Plate).order_by(Plate.created_at.desc()).limit(8)).all()
+    context: dict[str, Any] = {
+        "request": request,
+        "message": request.query_params.get("message"),
+        "message_kind": request.query_params.get("kind", "success"),
+        "stats": summary["stats"],
         "latest_run": latest_run,
         "recent_changes": recent_changes,
         "recent_plates": recent_plates,
@@ -120,7 +161,13 @@ async def preview_manual_import(
     form = await request.form()
     text = str(form.get("plates_text", ""))
     report = analyze_candidates(text.splitlines(), settings.max_plate_length)
-    return _render_dashboard(session, request, import_report=report, import_source="manual")
+    return _render_dashboard(
+        session,
+        request,
+        import_report=report,
+        import_source="Manual entry",
+        review_kind="manual",
+    )
 
 
 @router.post("/imports/upload/preview", response_class=HTMLResponse)
@@ -148,7 +195,13 @@ async def preview_upload(request: Request, session: Session = Depends(get_db)) -
 
     if suffix == ".txt":
         report = analyze_candidates(parse_text_content(content), settings.max_plate_length)
-        return _render_dashboard(session, request, import_report=report, import_source=upload.filename)
+        return _render_dashboard(
+            session,
+            request,
+            import_report=report,
+            import_source=upload.filename,
+            review_kind="upload",
+        )
 
     try:
         inspection = inspect_csv(content)
@@ -156,7 +209,13 @@ async def preview_upload(request: Request, session: Session = Depends(get_db)) -
         return _render_dashboard(session, request, upload_error=str(exc))
     if inspection.selected_column:
         report = analyze_candidates(inspection.values, settings.max_plate_length)
-        return _render_dashboard(session, request, import_report=report, import_source=upload.filename)
+        return _render_dashboard(
+            session,
+            request,
+            import_report=report,
+            import_source=upload.filename,
+            review_kind="upload",
+        )
     return _render_dashboard(
         session,
         request,
@@ -177,34 +236,186 @@ async def select_csv_column(
     try:
         inspection = inspect_csv(content, column)
         report = analyze_candidates(inspection.values, settings.max_plate_length)
-        return _render_dashboard(session, request, import_report=report, import_source=filename)
+        return _render_dashboard(
+            session,
+            request,
+            import_report=report,
+            import_source=filename,
+            review_kind="upload",
+        )
     except ValueError as exc:
         return _render_dashboard(session, request, upload_error=str(exc))
 
 
+@dataclass(frozen=True)
+class PlateAddPlan:
+    normalized: list[str]
+    new_values: list[str]
+    waiting_ids: list[int]
+    checked_ids: list[int]
+
+
+def _plan_plate_add(session: Session, selected: list[str]) -> PlateAddPlan:
+    report = analyze_candidates(selected, settings.max_plate_length)
+    if not report.valid:
+        raise ValueError("Select at least one valid plate.")
+    existing = session.scalars(
+        select(Plate).where(Plate.normalized_plate.in_(report.valid))
+    ).all()
+    by_plate = {plate.normalized_plate: plate for plate in existing}
+    return PlateAddPlan(
+        normalized=report.valid,
+        new_values=[value for value in report.valid if value not in by_plate],
+        waiting_ids=[
+            by_plate[value].id
+            for value in report.valid
+            if value in by_plate and by_plate[value].last_checked_at is None
+        ],
+        checked_ids=[
+            by_plate[value].id
+            for value in report.valid
+            if value in by_plate and by_plate[value].last_checked_at is not None
+        ],
+    )
+
+
+def _plan_summary(plan: PlateAddPlan) -> str:
+    return (
+        f"{len(plan.normalized)} submitted: {len(plan.new_values)} added, "
+        f"{len(plan.waiting_ids)} already waiting to be checked, and "
+        f"{len(plan.checked_ids)} previously checked."
+    )
+
+
+def _complete_plate_add(
+    session: Session,
+    *,
+    selected: list[str],
+    action: str,
+    include_checked: bool,
+    confirm_large: bool,
+    source: str,
+) -> RedirectResponse:
+    try:
+        plan = _plan_plate_add(session, selected)
+    except ValueError as exc:
+        return _redirect("/#add-plates", str(exc), "error")
+
+    check_now = action == "check_now"
+    if (
+        source == "generator"
+        and not check_now
+        and len(plan.normalized) > 500
+        and not confirm_large
+    ):
+        return _redirect(
+            "/generator",
+            "Adding more than 500 generated plates requires confirmation.",
+            "error",
+        )
+    planned_run_size = len(plan.new_values) + len(plan.waiting_ids)
+    if include_checked:
+        planned_run_size += len(plan.checked_ids)
+    if check_now:
+        active = run_manager.active_run(session)
+        if active is not None:
+            return _redirect(
+                "/#run-progress-anchor",
+                "A checking run is already active. Add these plates to the library or wait for the current run to finish.",
+                "warning",
+            )
+        if planned_run_size > settings.max_candidates_per_run:
+            return _redirect(
+                "/#add-plates",
+                f"A run may contain at most {settings.max_candidates_per_run} plates.",
+                "error",
+            )
+        if (
+            planned_run_size > settings.large_run_confirmation_threshold
+            and not confirm_large
+        ):
+            return _redirect(
+                "/#add-plates",
+                f"Runs above {settings.large_run_confirmation_threshold} plates require confirmation.",
+                "error",
+            )
+
+    new_plates = [Plate(plate=value, normalized_plate=value) for value in plan.new_values]
+    session.add_all(new_plates)
+    session.flush()
+    new_ids = [plate.id for plate in new_plates]
+    focus_ids = new_ids + plan.waiting_ids + plan.checked_ids
+    session.commit()
+
+    summary = _plan_summary(plan)
+    if not check_now:
+        wording = "imported" if source == "upload" else "added"
+        if len(plan.new_values) == len(plan.normalized):
+            message = (
+                f"{len(plan.new_values)} plates {wording}. They have not been checked yet."
+            )
+        else:
+            message = f"{summary} No checking run was started."
+        return _redirect(
+            f"/results?ids={','.join(str(value) for value in focus_ids)}",
+            message,
+        )
+
+    run_ids = new_ids + plan.waiting_ids + (plan.checked_ids if include_checked else [])
+    if not run_ids:
+        return _redirect(
+            f"/results?ids={','.join(str(value) for value in focus_ids)}",
+            f"{summary} Previously checked plates were left unchanged.",
+            "warning",
+        )
+    try:
+        run = run_manager.start(run_ids)
+    except (RuntimeError, ValueError) as exc:
+        return _redirect(
+            f"/results?ids={','.join(str(value) for value in focus_ids)}",
+            f"{summary} The plates were saved, but checking did not start: {exc}",
+            "warning",
+        )
+    if len(plan.new_values) == len(plan.normalized):
+        message = (
+            f"{len(plan.new_values)} plates added. Checking has started in visible Chromium."
+        )
+    else:
+        message = f"{summary} Checking run #{run.id} has started in visible Chromium."
+    return _redirect("/#run-progress-anchor", message)
+
+
+async def _plate_add_from_request(
+    request: Request, session: Session, *, source: str
+) -> RedirectResponse:
+    form = await request.form()
+    return _complete_plate_add(
+        session,
+        selected=[str(value) for value in form.getlist("plates")],
+        action=str(form.get("action", "library")),
+        include_checked=form.get("include_checked") == "1",
+        confirm_large=form.get("confirm_large") == "yes",
+        source=source,
+    )
+
+
+@router.post("/plates/confirm")
+async def confirm_manual_plates(
+    request: Request, session: Session = Depends(get_db)
+) -> RedirectResponse:
+    return await _plate_add_from_request(request, session, source="manual")
+
+
 @router.post("/imports/confirm")
 async def confirm_import(request: Request, session: Session = Depends(get_db)) -> RedirectResponse:
-    form = await request.form()
-    selected = [str(value) for value in form.getlist("plates")]
-    report = analyze_candidates(selected, settings.max_plate_length)
-    existing = set(
-        session.scalars(
-            select(Plate.normalized_plate).where(Plate.normalized_plate.in_(report.valid))
-        ).all()
-    )
-    added = 0
-    for normalized in report.valid:
-        if normalized in existing:
-            continue
-        session.add(Plate(plate=normalized, normalized_plate=normalized))
-        added += 1
-    session.commit()
-    skipped = len(report.valid) - added
-    return _redirect("/results", f"Imported {added} plate(s); skipped {skipped} already stored.")
+    return await _plate_add_from_request(request, session, source="upload")
 
 
 def _filtered_plate_query(params: Any) -> Select[tuple[Plate]]:
     query = select(Plate)
+    ids = [value for value in str(params.get("ids", "")).split(",") if value.isdigit()]
+    if ids:
+        query = query.where(Plate.id.in_([int(value) for value in ids]))
     search = str(params.get("q", "")).strip().upper()
     if search:
         query = query.where(Plate.normalized_plate.contains(search))
@@ -252,6 +463,15 @@ def results(request: Request, session: Session = Depends(get_db)) -> HTMLRespons
     per_page = 25
     count_query = select(func.count()).select_from(_filtered_plate_query(request.query_params).subquery())
     total = session.scalar(count_query) or 0
+    untested_query = _filtered_plate_query(request.query_params).where(
+        Plate.last_checked_at.is_(None)
+    )
+    untested_count = session.scalar(
+        select(func.count()).select_from(untested_query.subquery())
+    ) or 0
+    untested_ids = session.scalars(
+        untested_query.order_by(Plate.created_at).limit(settings.max_candidates_per_run)
+    ).all()
     plates = session.scalars(query.offset((page - 1) * per_page).limit(per_page)).all()
     query_dict = dict(request.query_params)
     query_dict.pop("page", None)
@@ -263,6 +483,9 @@ def results(request: Request, session: Session = Depends(get_db)) -> HTMLRespons
             "request": request,
             "plates": plates,
             "total": total,
+            "untested_count": untested_count,
+            "untested_ids": [plate.id for plate in untested_ids],
+            "focused_ids": request.query_params.get("ids", ""),
             "page": page,
             "pages": max(1, (total + per_page - 1) // per_page),
             "pagination_query": pagination_query,
@@ -325,6 +548,7 @@ def generator_page(request: Request) -> HTMLResponse:
             "generation": None,
             "form_values": {},
             "max_plate_length": settings.max_plate_length,
+            "large_run_threshold": settings.large_run_confirmation_threshold,
         },
     )
 
@@ -359,29 +583,14 @@ async def generator_preview(request: Request) -> HTMLResponse:
             "generator_error": error,
             "form_values": form_values,
             "max_plate_length": settings.max_plate_length,
+            "large_run_threshold": settings.large_run_confirmation_threshold,
         },
     )
 
 
 @router.post("/generator/import")
 async def import_generated(request: Request, session: Session = Depends(get_db)) -> RedirectResponse:
-    form = await request.form()
-    selected = [str(value) for value in form.getlist("plates")]
-    if len(selected) > 500 and form.get("confirm_large") != "yes":
-        return _redirect("/generator", "Confirm imports larger than 500 plates.", "error")
-    report = analyze_candidates(selected, settings.max_plate_length)
-    existing = set(
-        session.scalars(
-            select(Plate.normalized_plate).where(Plate.normalized_plate.in_(report.valid))
-        ).all()
-    )
-    for normalized in report.valid:
-        if normalized not in existing:
-            session.add(Plate(plate=normalized, normalized_plate=normalized))
-    session.commit()
-    return _redirect(
-        "/results", f"Imported {len(report.valid) - len(existing)} generated plate(s)."
-    )
+    return await _plate_add_from_request(request, session, source="generator")
 
 
 @router.post("/runs/start")
@@ -409,7 +618,13 @@ async def start_run(request: Request) -> RedirectResponse:
     try:
         run = run_manager.start(plate_ids)
         return _redirect("/", f"Checking run #{run.id} started in visible Chromium.")
-    except (RuntimeError, ValueError) as exc:
+    except RuntimeError:
+        return _redirect(
+            "/#run-progress-anchor",
+            "A checking run is already active. Add these plates to the library or wait for the current run to finish.",
+            "warning",
+        )
+    except ValueError as exc:
         return _redirect("/results", str(exc), "error")
 
 
@@ -433,6 +648,13 @@ def current_run(session: Session = Depends(get_db)) -> JSONResponse:
     if run is None:
         return JSONResponse({"run": None})
     return JSONResponse({"run": RunProgress.model_validate(run).model_dump(mode="json")})
+
+
+@router.get("/api/dashboard-summary")
+def dashboard_summary(session: Session = Depends(get_db)) -> JSONResponse:
+    """Return the dashboard fragments that change as a checking run finishes."""
+
+    return JSONResponse(_dashboard_summary(session))
 
 
 @router.get("/history", response_class=HTMLResponse)

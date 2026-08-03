@@ -9,8 +9,8 @@ Availability checks use a **visible Playwright Chromium browser** and the offici
 - Manual plate entry with normalization, duplicate detection, and validation review
 - `.txt` and `.csv` uploads with automatic `plate` column detection
 - Ten plate-generation patterns, including custom placeholders and keyword variations
-- Searchable, sortable, paginated results with filters, favorites, and notes
-- Explicit single or bulk rechecks in batches of at most five
+- Searchable, sortable, paginated plate library with filters, favorites, and notes
+- Clear Check actions for untested plates and Recheck actions for prior results
 - Live progress refreshed every two seconds and a safe Stop button
 - Full per-plate check history and status-change detection
 - CSV exports for all plates, available plates, favorites, filtered results, changed plates, and complete history
@@ -77,7 +77,7 @@ The dashboard is bound to the local computer only. Leave the terminal window ope
 
 ## Add or upload plates
 
-On the Dashboard, paste one candidate per line and choose **Review candidates**. The review shows valid values, duplicates, and specific validation failures before anything is imported.
+On the **Dashboard**, paste one candidate per line and choose **Review plate list**. The review shows valid values, duplicates, and specific validation failures before anything is saved. Choose **Add and check now** to save the selected plates and immediately start a visible-browser run, or **Add to library** to save without checking.
 
 For uploads:
 
@@ -88,7 +88,7 @@ For uploads:
 
 ## Generate plate combinations
 
-Open **Generator**, choose a pattern, enter its focused inputs, and select **Preview candidates**. You can select all or only some candidates before importing them. More than 500 valid candidates displays a warning and requires confirmation. Importing never starts a checking run.
+Open **Generate plates**, choose a pattern, enter only the fields shown for that pattern, and select **Preview candidates**. A preview does not save or check anything. After selecting candidates, choose **Add and check selected** or **Add selected to library**. More than 500 valid candidates displays a warning and requires confirmation.
 
 Custom templates support:
 
@@ -97,13 +97,13 @@ Custom templates support:
 - `{NN}` — two digits
 - `{WORD}` — the supplied word
 
-For example, `{WORD}{NN}` with `TAM` produces `TAM00` through `TAM99`, subject to the seven-character limit.
+For example, `{WORD}{NN}` with `SUN` produces `SUN00` through `SUN99`, subject to the seven-character limit.
 
 ## Start, watch, and stop a checking run
 
-1. Open **Results**.
+1. Open **Plate library**.
 2. Select the requested plates with the checkboxes.
-3. Choose **Recheck selected**.
+3. Choose **Check selected** for never-checked plates or **Recheck selected** for prior results.
 4. Confirm the run when it includes more than 100 candidates.
 
 Only one run can be active. The application opens visible Chromium, submits at most five configurations per FLHSMV form, and waits a random five to ten seconds between batches. The progress bar shows the batch, checked count, result counts, and last processed plate.
@@ -116,15 +116,15 @@ If FLHSMV displays CAPTCHA or human verification, the run changes to `captcha`. 
 
 Access-denied, rate-limit, maintenance, and repeated-failure messages stop the run and record the reason. Wait before trying again; do not attempt to evade the restriction.
 
-## Results, history, and status changes
+## Plate library, run history, and status changes
 
-The **Results** page stores one current row for each normalized plate. Every completed check also creates an immutable history row. When a status changes, the prior status is preserved and the change timestamp appears on the Dashboard and in the Changed filter.
+The **Plate library** stores one current row for each normalized plate. Every completed check also creates an immutable history row. When a status changes, the prior status is preserved and the change timestamp appears on the Dashboard and in the Changed filter.
 
-The **History** page shows recent check rows and checking-run summaries. It can be filtered to a single plate from the Results page.
+The **Run history** page shows recent check rows and checking-run summaries. It can be filtered to a single plate from the Plate library.
 
 ## CSV exports
 
-The Results toolbar provides exports for:
+The Plate library toolbar provides exports for:
 
 - All plates
 - Available plates

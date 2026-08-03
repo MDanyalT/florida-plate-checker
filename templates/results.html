@@ -1,10 +1,31 @@
 {% extends "base.html" %}
-{% block title %}Results · Florida Plate Research{% endblock %}
+{% block title %}Plate library · Florida Plate Research{% endblock %}
 {% block content %}
+<div data-results-page>
 <section class="page-heading">
-  <div><span class="eyebrow">Your research library</span><h1>Plate results</h1><p>{{ total }} matching plate{{ '' if total == 1 else 's' }}. Search, filter, recheck, and export what matters.</p></div>
-  <div class="page-actions"><a class="button secondary" href="/generator">Generate more</a><a class="button ghost" href="/exports/plates.csv?scope=filtered&{{ request.query_params }}">Export filtered CSV</a></div>
+  <div><span class="eyebrow">Your saved candidates</span><h1>Plate library</h1><p>{{ total }} matching plate{{ '' if total == 1 else 's' }}. Search, filter, check, recheck, and export what matters.</p></div>
+  <div class="page-actions"><a class="button secondary" href="/generator">Generate plates</a><a class="button ghost" href="/exports/plates.csv?scope=filtered&{{ request.query_params }}">Export filtered CSV</a></div>
 </section>
+
+{% if focused_ids %}
+<section class="post-add-callout" aria-label="Newly added plates">
+  <div><strong>These are the plates from your latest addition.</strong><p>They are saved locally. Checking only begins when you choose an action below.</p></div>
+  {% if untested_count %}
+  <form action="/runs/start" method="post" data-large-run-form data-run-count="{{ untested_ids|length }}" data-threshold="{{ large_run_threshold }}">
+    <input type="hidden" name="confirm_large" value="no">
+    {% for plate_id in untested_ids %}<input type="hidden" name="plate_ids" value="{{ plate_id }}">{% endfor %}
+    <button class="button primary" type="submit">Check these plates</button>
+  </form>
+  {% endif %}
+</section>
+{% endif %}
+
+<div class="quick-filters" aria-label="Quick filters">
+  <span>Quick view</span>
+  <a class="quick-filter {% if request.query_params.get('never_checked') == '1' %}active{% endif %}" href="/results?never_checked=1">Never checked{% if untested_count %} ({{ untested_count }}){% endif %}</a>
+  <a class="quick-filter {% if request.query_params.get('favorite') == '1' %}active{% endif %}" href="/results?favorite=1">Favorites</a>
+  <a class="quick-filter {% if request.query_params.get('changed') == '1' %}active{% endif %}" href="/results?changed=1">Recently changed</a>
+</div>
 
 <form class="filter-bar" method="get" action="/results">
   <label class="search-field"><span>Search</span><input type="search" name="q" value="{{ request.query_params.get('q', '') }}" placeholder="Plate text"></label>
@@ -25,7 +46,16 @@
 <section class="table-panel">
   <div class="table-toolbar">
     <label><input type="checkbox" data-table-select-all> Select this page</label>
-    <button class="button primary small" type="submit" form="bulk-run">Recheck selected</button>
+    <button id="bulk-run-label" class="button primary small" type="submit" form="bulk-run" disabled>Check selected plates</button>
+    {% if untested_count and untested_count <= untested_ids|length %}
+    <form action="/runs/start" method="post" data-large-run-form data-run-count="{{ untested_count }}" data-threshold="{{ large_run_threshold }}">
+      <input type="hidden" name="confirm_large" value="no">
+      {% for plate_id in untested_ids %}<input type="hidden" name="plate_ids" value="{{ plate_id }}">{% endfor %}
+      <button class="button secondary small" type="submit">Check all {{ untested_count }} untested plate{{ '' if untested_count == 1 else 's' }}</button>
+    </form>
+    {% elif untested_count %}
+      <span class="toolbar-note">{{ untested_count }} untested match this view. Select up to {{ untested_ids|length }} for one run.</span>
+    {% endif %}
     <div class="export-menu">
       <a href="/exports/plates.csv?scope=all">All CSV</a>
       <a href="/exports/plates.csv?scope=available">Available</a>
@@ -50,9 +80,12 @@
       <tbody>
       {% for plate in plates %}
         <tr>
-          <td><input type="checkbox" name="plate_ids" value="{{ plate.id }}" form="bulk-run" data-row-check aria-label="Select {{ plate.normalized_plate }}"></td>
+          <td><input type="checkbox" name="plate_ids" value="{{ plate.id }}" form="bulk-run" data-row-check data-checked="{{ 'true' if plate.last_checked_at else 'false' }}" aria-label="Select {{ plate.normalized_plate }}"></td>
           <td><span class="plate-display">{{ plate.normalized_plate }}</span></td>
-          <td><span class="status-badge status-{{ (plate.current_status or 'never-checked')|lower|replace(' ', '-') }}">{{ plate.current_status or 'Never checked' }}</span></td>
+          <td>
+            <span class="status-badge status-{{ (plate.current_status or 'never-checked')|lower|replace(' ', '-') }}">{{ plate.current_status or 'Never Checked' }}</span>
+            {% if not plate.last_checked_at %}<small class="status-help">Saved locally and waiting to be checked</small>{% endif %}
+          </td>
           <td>{{ plate.previous_status or '—' }}</td>
           <td><time>{{ plate.last_checked_at|datetime }}</time></td>
           <td><time>{{ plate.status_changed_at|datetime }}</time></td>
@@ -66,7 +99,7 @@
             </details>
           </td>
           <td><div class="row-actions">
-            <form action="/runs/start" method="post"><input type="hidden" name="plate_ids" value="{{ plate.id }}"><button class="text-button" type="submit">Recheck</button></form>
+            <form action="/runs/start" method="post"><input type="hidden" name="plate_ids" value="{{ plate.id }}"><button class="text-button" type="submit">{{ 'Recheck' if plate.last_checked_at else 'Check' }}</button></form>
             <a href="/history?plate_id={{ plate.id }}">History</a>
             <form action="/plates/{{ plate.id }}/delete" method="post" data-confirm="Delete {{ plate.normalized_plate }} and its local history?"><input type="hidden" name="return_url" value="{{ request.url.path }}?{{ request.query_params }}"><button class="text-button danger-text" type="submit">Delete</button></form>
           </div></td>
@@ -75,11 +108,12 @@
       </tbody>
     </table>
   </div>
-  {% else %}<div class="empty-state large"><strong>No plates match these filters</strong><p>Clear a filter, import a list, or generate a new pattern.</p><a class="button primary" href="/#add-plates">Add plates</a></div>{% endif %}
+  {% else %}<div class="empty-state large"><strong>No plates match these filters</strong><p>Clear a filter, add a list, or generate new ideas.</p><a class="button primary" href="/#add-plates">Add plates</a></div>{% endif %}
   <div class="pagination">
     {% if page > 1 %}<a href="?{{ pagination_query }}&page={{ page - 1 }}">← Previous</a>{% else %}<span></span>{% endif %}
     <span>Page {{ page }} of {{ pages }}</span>
     {% if page < pages %}<a href="?{{ pagination_query }}&page={{ page + 1 }}">Next →</a>{% endif %}
   </div>
 </section>
+</div>
 {% endblock %}

@@ -1,8 +1,8 @@
 {% extends "base.html" %}
-{% block title %}History · Florida Plate Research{% endblock %}
+{% block title %}Run history · Florida Plate Research{% endblock %}
 {% block content %}
 <section class="page-heading">
-  <div><span class="eyebrow">A durable audit trail</span><h1>{% if selected_plate %}History for {{ selected_plate.normalized_plate }}{% else %}Check history{% endif %}</h1><p>Every completed result is recorded independently from the plate’s current status.</p></div>
+  <div><span class="eyebrow">A durable audit trail</span><h1>{% if selected_plate %}History for {{ selected_plate.normalized_plate }}{% else %}Run history{% endif %}</h1><p>Every completed result is recorded independently from the plate’s current status.</p></div>
   <div class="page-actions"><a class="button ghost" href="/exports/history.csv">Export full history</a>{% if selected_plate %}<a class="button secondary" href="/history">Show all plates</a>{% endif %}</div>
 </section>
 
@@ -20,4 +20,3 @@
   </aside>
 </section>
 {% endblock %}
-

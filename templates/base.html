@@ -5,20 +5,22 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light">
   <title>{% block title %}Florida Plate Research{% endblock %}</title>
-  <link rel="stylesheet" href="{{ url_for('static', path='styles.css') }}">
-  <script defer src="{{ url_for('static', path='app.js') }}"></script>
+  <link rel="stylesheet" href="{{ url_for('static', path='styles.css') }}?v=20260803-2">
+  <script defer src="{{ url_for('static', path='app.js') }}?v=20260803-2"></script>
 </head>
 <body>
   <header class="site-header">
-    <a class="brand" href="/" aria-label="Florida Plate Research home">
+    <a class="brand" href="/" aria-label="Florida Plate Research dashboard">
       <span class="brand-mark">FL</span>
       <span><strong>Plate Research</strong><small>Local FLHSMV workspace</small></span>
     </a>
-    <nav aria-label="Primary navigation">
-      <a href="/" class="{% if request.url.path == '/' %}active{% endif %}">Dashboard</a>
-      <a href="/results" class="{% if request.url.path == '/results' %}active{% endif %}">Results</a>
-      <a href="/generator" class="{% if request.url.path == '/generator' %}active{% endif %}">Generator</a>
-      <a href="/history" class="{% if request.url.path == '/history' %}active{% endif %}">History</a>
+    <nav id="primary-navigation" aria-label="Primary navigation">
+      <a href="/" class="{% if request.url.path == '/' %}active{% endif %}" {% if request.url.path == '/' %}aria-current="page"{% endif %}>Dashboard</a>
+      <a href="/results" class="{% if request.url.path == '/results' %}active{% endif %}" {% if request.url.path == '/results' %}aria-current="page"{% endif %}>Plate library</a>
+      <a href="/generator" class="{% if request.url.path.startswith('/generator') %}active{% endif %}" {% if request.url.path.startswith('/generator') %}aria-current="page"{% endif %}>Generate plates</a>
+      <a href="/history" class="{% if request.url.path == '/history' %}active{% endif %}" {% if request.url.path == '/history' %}aria-current="page"{% endif %}>Run history</a>
+      <a id="header-run-indicator" class="header-run-indicator" href="/#run-progress-anchor" hidden>Checking…</a>
+      <a class="button primary header-add" href="/#add-plates">Add plates</a>
     </nav>
   </header>
 
@@ -26,6 +28,7 @@
     <strong>Responsible use:</strong> visible browser · one batch at a time · no CAPTCHA solving · no hidden monitoring
   </div>
 
+  <section id="run-progress-anchor" class="run-anchor" aria-hidden="true"></section>
   <section id="live-run" class="live-run" hidden aria-live="polite">
     <div class="live-run-head">
       <div>
