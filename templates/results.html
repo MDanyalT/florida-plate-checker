@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% block title %}Results · Florida Plate Research{% endblock %}
+{% block content %}
+<section class="page-heading">
+  <div><span class="eyebrow">Your research library</span><h1>Plate results</h1><p>{{ total }} matching plate{{ '' if total == 1 else 's' }}. Search, filter, recheck, and export what matters.</p></div>
+  <div class="page-actions"><a class="button secondary" href="/generator">Generate more</a><a class="button ghost" href="/exports/plates.csv?scope=filtered&{{ request.query_params }}">Export filtered CSV</a></div>
+</section>
+
+<form class="filter-bar" method="get" action="/results">
+  <label class="search-field"><span>Search</span><input type="search" name="q" value="{{ request.query_params.get('q', '') }}" placeholder="Plate text"></label>
+  <label><span>Status</span><select name="status"><option value="">All statuses</option>{% for status in statuses %}<option value="{{ status }}" {% if request.query_params.get('status') == status %}selected{% endif %}>{{ status }}</option>{% endfor %}</select></label>
+  <label><span>Length</span><select name="length"><option value="">Any</option>{% for number in range(1, max_plate_length + 1) %}<option value="{{ number }}" {% if request.query_params.get('length') == number|string %}selected{% endif %}>{{ number }}</option>{% endfor %}</select></label>
+  <label><span>Checked from</span><input type="date" name="date_from" value="{{ request.query_params.get('date_from', '') }}"></label>
+  <label><span>Checked to</span><input type="date" name="date_to" value="{{ request.query_params.get('date_to', '') }}"></label>
+  <label class="check-filter"><input type="checkbox" name="favorite" value="1" {% if request.query_params.get('favorite') == '1' %}checked{% endif %}> Favorites</label>
+  <label class="check-filter"><input type="checkbox" name="changed" value="1" {% if request.query_params.get('changed') == '1' %}checked{% endif %}> Changed</label>
+  <label class="check-filter"><input type="checkbox" name="never_checked" value="1" {% if request.query_params.get('never_checked') == '1' %}checked{% endif %}> Never checked</label>
+  <div class="filter-actions"><button class="button primary small" type="submit">Apply filters</button><a href="/results">Clear</a></div>
+</form>
+
+<form id="bulk-run" action="/runs/start" method="post" data-large-run-form data-threshold="{{ large_run_threshold }}">
+  <input type="hidden" name="confirm_large" value="no">
+</form>
+
+<section class="table-panel">
+  <div class="table-toolbar">
+    <label><input type="checkbox" data-table-select-all> Select this page</label>
+    <button class="button primary small" type="submit" form="bulk-run">Recheck selected</button>
+    <div class="export-menu">
+      <a href="/exports/plates.csv?scope=all">All CSV</a>
+      <a href="/exports/plates.csv?scope=available">Available</a>
+      <a href="/exports/plates.csv?scope=favorites">Favorites</a>
+      <a href="/exports/plates.csv?scope=changed">Changed</a>
+      <a href="/exports/history.csv">Full history</a>
+    </div>
+  </div>
+  {% if plates %}
+  <div class="table-wrap">
+    <table>
+      <thead><tr>
+        <th><span class="sr-only">Select</span></th>
+        <th><a href="?{{ pagination_query }}&sort=plate&direction=asc">Plate</a></th>
+        <th><a href="?{{ pagination_query }}&sort=status&direction=asc">Current status</a></th>
+        <th>Previous</th>
+        <th><a href="?{{ pagination_query }}&sort=checked&direction=desc">Last checked</a></th>
+        <th><a href="?{{ pagination_query }}&sort=changed&direction=desc">Changed</a></th>
+        <th><a href="?{{ pagination_query }}&sort=count&direction=desc">Checks</a></th>
+        <th>Favorite</th><th>Notes</th><th>Actions</th>
+      </tr></thead>
+      <tbody>
+      {% for plate in plates %}
+        <tr>
+          <td><input type="checkbox" name="plate_ids" value="{{ plate.id }}" form="bulk-run" data-row-check aria-label="Select {{ plate.normalized_plate }}"></td>
+          <td><span class="plate-display">{{ plate.normalized_plate }}</span></td>
+          <td><span class="status-badge status-{{ (plate.current_status or 'never-checked')|lower|replace(' ', '-') }}">{{ plate.current_status or 'Never checked' }}</span></td>
+          <td>{{ plate.previous_status or '—' }}</td>
+          <td><time>{{ plate.last_checked_at|datetime }}</time></td>
+          <td><time>{{ plate.status_changed_at|datetime }}</time></td>
+          <td>{{ plate.check_count }}</td>
+          <td>
+            <form action="/plates/{{ plate.id }}/favorite" method="post"><input type="hidden" name="return_url" value="{{ request.url.path }}?{{ request.query_params }}"><button class="icon-button {% if plate.favorite %}favorited{% endif %}" title="Toggle favorite" aria-label="Toggle favorite for {{ plate.normalized_plate }}">★</button></form>
+          </td>
+          <td>
+            <details class="notes-popover"><summary>{{ plate.notes[:24] if plate.notes else 'Add note' }}{% if plate.notes|length > 24 %}…{% endif %}</summary>
+              <form action="/plates/{{ plate.id }}/notes" method="post"><input type="hidden" name="return_url" value="{{ request.url.path }}?{{ request.query_params }}"><textarea name="notes" rows="3" maxlength="2000" placeholder="Private local note">{{ plate.notes }}</textarea><button class="button small primary" type="submit">Save</button></form>
+            </details>
+          </td>
+          <td><div class="row-actions">
+            <form action="/runs/start" method="post"><input type="hidden" name="plate_ids" value="{{ plate.id }}"><button class="text-button" type="submit">Recheck</button></form>
+            <a href="/history?plate_id={{ plate.id }}">History</a>
+            <form action="/plates/{{ plate.id }}/delete" method="post" data-confirm="Delete {{ plate.normalized_plate }} and its local history?"><input type="hidden" name="return_url" value="{{ request.url.path }}?{{ request.query_params }}"><button class="text-button danger-text" type="submit">Delete</button></form>
+          </div></td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}<div class="empty-state large"><strong>No plates match these filters</strong><p>Clear a filter, import a list, or generate a new pattern.</p><a class="button primary" href="/#add-plates">Add plates</a></div>{% endif %}
+  <div class="pagination">
+    {% if page > 1 %}<a href="?{{ pagination_query }}&page={{ page - 1 }}">← Previous</a>{% else %}<span></span>{% endif %}
+    <span>Page {{ page }} of {{ pages }}</span>
+    {% if page < pages %}<a href="?{{ pagination_query }}&page={{ page + 1 }}">Next →</a>{% endif %}
+  </div>
+</section>
+{% endblock %}

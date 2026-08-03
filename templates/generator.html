@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}Generator · Florida Plate Research{% endblock %}
+{% block content %}
+<section class="page-heading">
+  <div><span class="eyebrow">Explore structured ideas</span><h1>Plate generator</h1><p>Preview combinations first. Nothing is saved or checked until you explicitly choose it.</p></div>
+</section>
+
+<section class="generator-layout">
+  <form action="/generator/preview" method="post" class="panel generator-form" data-generator-form>
+    <div class="panel-heading"><div><span class="eyebrow">Step 1</span><h2>Choose a pattern</h2></div><span class="pill">{{ max_plate_length }} char max</span></div>
+    <label for="pattern_type">Pattern type</label>
+    <select id="pattern_type" name="pattern_type" data-pattern-select>
+      <option value="single_letter_numbers" {% if form_values.get('pattern_type', 'single_letter_numbers') == 'single_letter_numbers' %}selected{% endif %}>Single letter + numbers · A1000</option>
+      <option value="number_letter" {% if form_values.get('pattern_type') == 'number_letter' %}selected{% endif %}>Number + letter · 786A</option>
+      <option value="prefix_number" {% if form_values.get('pattern_type') == 'prefix_number' %}selected{% endif %}>Prefix + number · TAM786</option>
+      <option value="letter_number_letter" {% if form_values.get('pattern_type') == 'letter_number_letter' %}selected{% endif %}>Letter + number + letter · T7A</option>
+      <option value="repeated_digits" {% if form_values.get('pattern_type') == 'repeated_digits' %}selected{% endif %}>Repeated digits · 7777</option>
+      <option value="mirrored_numbers" {% if form_values.get('pattern_type') == 'mirrored_numbers' %}selected{% endif %}>Mirrored numbers · 7887</option>
+      <option value="sequential_numbers" {% if form_values.get('pattern_type') == 'sequential_numbers' %}selected{% endif %}>Sequential numbers · 12345</option>
+      <option value="two_letters" {% if form_values.get('pattern_type') == 'two_letters' %}selected{% endif %}>Two letters · AA–ZZ</option>
+      <option value="custom_template" {% if form_values.get('pattern_type') == 'custom_template' %}selected{% endif %}>Custom template</option>
+      <option value="keyword_variations" {% if form_values.get('pattern_type') == 'keyword_variations' %}selected{% endif %}>Keyword variations</option>
+    </select>
+    <div class="form-row">
+      <label>Number start<input type="number" name="start" value="{{ form_values.get('start', '0') }}"></label>
+      <label>Number end<input type="number" name="end" value="{{ form_values.get('end', '9') }}"></label>
+      <label>Length<input type="number" name="length" min="1" max="{{ max_plate_length }}" value="{{ form_values.get('length', '4') }}"></label>
+    </div>
+    <label>Prefix<input type="text" name="prefix" maxlength="{{ max_plate_length }}" value="{{ form_values.get('prefix', 'TAM') }}" placeholder="TAM"></label>
+    <label>Custom template<input type="text" name="template" value="{{ form_values.get('template', '{L}{NN}') }}" placeholder="{WORD}{NN}"></label>
+    <p class="field-help">Placeholders: <code>{L}</code> letter, <code>{N}</code> digit, <code>{NN}</code> two digits, <code>{WORD}</code> supplied word.</p>
+    <label>Template word<input type="text" name="word" value="{{ form_values.get('word', '') }}" placeholder="TAM"></label>
+    <label>Keywords<textarea name="keywords" rows="4" placeholder="TARIQ, TAM, RHM, DANYAL">{{ form_values.get('keywords', '') }}</textarea></label>
+    <label class="check-filter"><input type="checkbox" name="substitutions" value="1" {% if form_values.get('substitutions') %}checked{% endif %}> Add common letter-to-number substitutions (A→4, I→1, O→0)</label>
+    {% if generator_error %}<p class="inline-error">{{ generator_error }}</p>{% endif %}
+    <button class="button primary" type="submit">Preview candidates</button>
+  </form>
+
+  <aside class="panel generator-guide">
+    <span class="eyebrow">Ideas that stay manageable</span><h2>Good research starts narrow.</h2>
+    <p>Try a meaningful prefix with a small number range first. Florida’s site accepts five at a time, with a conservative pause between batches.</p>
+    <ul><li>Generation never starts checking.</li><li>Duplicates and overlength values are removed.</li><li>More than 500 candidates triggers a warning.</li><li>Checking runs are capped at 500 by default.</li></ul>
+  </aside>
+</section>
+
+{% if generation %}
+<section class="panel review-panel">
+  <div class="panel-heading"><div><span class="eyebrow">Step 2 · Preview</span><h2>{{ generation.candidates|length }} valid candidates</h2></div><div class="review-counts"><span>{{ generation.total_before_validation }} generated</span><span>{{ generation.duplicate_count }} duplicates removed</span><span class="bad">{{ generation.rejected|length }} rejected</span></div></div>
+  {% if generation.large_warning %}<div class="warning-callout"><strong>Large set:</strong> more than 500 candidates were generated. Import only the focused subset you genuinely intend to research.</div>{% endif %}
+  {% if generation.candidates %}
+  <form action="/generator/import" method="post" data-selection-form data-large-import-form>
+    <input type="hidden" name="confirm_large" value="no">
+    <div class="selection-toolbar sticky"><label><input type="checkbox" data-select-all checked> Select all</label><span data-selection-count>{{ generation.candidates|length }} selected</span><button class="button primary" type="submit">Import selected</button></div>
+    <div class="candidate-grid scroll-grid">
+      {% for plate in generation.candidates %}<label class="candidate-chip"><input type="checkbox" name="plates" value="{{ plate }}" checked> <span>{{ plate }}</span></label>{% endfor %}
+    </div>
+  </form>
+  {% else %}<div class="empty-state"><strong>No valid plates generated</strong><p>Adjust the pattern to fit the {{ max_plate_length }}-character limit.</p></div>{% endif %}
+  {% if generation.rejected %}<details><summary>{{ generation.rejected|length }} overlength or invalid candidates</summary><p class="mono-list">{{ generation.rejected|join(', ') }}</p></details>{% endif %}
+</section>
+{% endif %}
+{% endblock %}

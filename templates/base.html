@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>{% block title %}Florida Plate Research{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', path='styles.css') }}">
+  <script defer src="{{ url_for('static', path='app.js') }}"></script>
+</head>
+<body>
+  <header class="site-header">
+    <a class="brand" href="/" aria-label="Florida Plate Research home">
+      <span class="brand-mark">FL</span>
+      <span><strong>Plate Research</strong><small>Local FLHSMV workspace</small></span>
+    </a>
+    <nav aria-label="Primary navigation">
+      <a href="/" class="{% if request.url.path == '/' %}active{% endif %}">Dashboard</a>
+      <a href="/results" class="{% if request.url.path == '/results' %}active{% endif %}">Results</a>
+      <a href="/generator" class="{% if request.url.path == '/generator' %}active{% endif %}">Generator</a>
+      <a href="/history" class="{% if request.url.path == '/history' %}active{% endif %}">History</a>
+    </nav>
+  </header>
+
+  <div class="responsible-strip">
+    <strong>Responsible use:</strong> visible browser · one batch at a time · no CAPTCHA solving · no hidden monitoring
+  </div>
+
+  <section id="live-run" class="live-run" hidden aria-live="polite">
+    <div class="live-run-head">
+      <div>
+        <span class="eyebrow">Current checking run</span>
+        <strong id="run-title">Preparing Chromium…</strong>
+      </div>
+      <form action="/runs/stop" method="post">
+        <button class="button danger small" type="submit">Stop safely</button>
+      </form>
+    </div>
+    <div class="progress-track"><span id="run-progress-bar"></span></div>
+    <div class="run-metrics">
+      <span><b id="run-checked">0</b> checked</span>
+      <span><b id="run-total">0</b> total</span>
+      <span>Batch <b id="run-batch">0</b></span>
+      <span class="metric-available"><b id="run-available">0</b> available</span>
+      <span class="metric-unavailable"><b id="run-unavailable">0</b> unavailable</span>
+      <span><b id="run-invalid">0</b> invalid</span>
+      <span><b id="run-unknown">0</b> unknown</span>
+      <span><b id="run-errors">0</b> errors</span>
+      <span>Last: <b id="run-last">—</b></span>
+    </div>
+    <p id="run-message" class="run-message"></p>
+  </section>
+
+  <main>
+    {% if message %}
+      <div class="flash {{ message_kind }}" role="status">{{ message }}</div>
+    {% endif %}
+    {% block content %}{% endblock %}
+  </main>
+
+  <footer>
+    <p>Uses the official FLHSMV personalized plate checker through visible Chromium. Availability can change before an in-person reservation.</p>
+  </footer>
+</body>
+</html>

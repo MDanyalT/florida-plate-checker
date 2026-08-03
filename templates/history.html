@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}History · Florida Plate Research{% endblock %}
+{% block content %}
+<section class="page-heading">
+  <div><span class="eyebrow">A durable audit trail</span><h1>{% if selected_plate %}History for {{ selected_plate.normalized_plate }}{% else %}Check history{% endif %}</h1><p>Every completed result is recorded independently from the plate’s current status.</p></div>
+  <div class="page-actions"><a class="button ghost" href="/exports/history.csv">Export full history</a>{% if selected_plate %}<a class="button secondary" href="/history">Show all plates</a>{% endif %}</div>
+</section>
+
+<section class="history-layout">
+  <article class="table-panel">
+    <div class="panel-heading inside"><div><span class="eyebrow">Result timeline</span><h2>Latest 500 checks</h2></div></div>
+    {% if entries %}<div class="table-wrap"><table><thead><tr><th>Checked</th><th>Plate</th><th>Status</th><th>Raw result</th><th>Batch</th><th>Run</th></tr></thead><tbody>
+    {% for entry in entries %}<tr><td>{{ entry.checked_at|datetime }}</td><td><span class="plate-display small">{{ entry.plate.normalized_plate }}</span></td><td><span class="status-badge status-{{ entry.status|lower|replace(' ', '-') }}">{{ entry.status }}</span></td><td>{{ entry.raw_result }}</td><td>{{ entry.batch_number }}</td><td>{% if entry.run_id %}#{{ entry.run_id }}{% else %}CLI{% endif %}</td></tr>{% endfor %}
+    </tbody></table></div>{% else %}<div class="empty-state large"><strong>No checks recorded</strong><p>History appears here as soon as a dashboard checking run saves its first result.</p></div>{% endif %}
+  </article>
+
+  <aside class="panel run-list-panel">
+    <div class="panel-heading"><div><span class="eyebrow">Recent sessions</span><h2>Checking runs</h2></div></div>
+    {% if runs %}<div class="run-list">{% for run in runs %}<article><div><strong>Run #{{ run.id }}</strong><span class="status-badge status-{{ run.status|lower }}">{{ run.status }}</span></div><p>{{ run.checked_count }}/{{ run.total_candidates }} checked · {{ run.available_count }} available</p><time>{{ run.started_at|datetime }}</time>{% if run.error_message %}<small class="inline-error">{{ run.error_message }}</small>{% endif %}</article>{% endfor %}</div>{% else %}<div class="empty-state"><strong>No runs yet</strong></div>{% endif %}
+  </aside>
+</section>
+{% endblock %}
+

@@ -3,11 +3,19 @@ plates.txt
 checked_plates.txt
 plate_results.csv
 plate_checker_debug/
+data/*.db
+data/*.db-*
 
 # Python
 .venv/
 __pycache__/
 *.pyc
+.pytest_cache/
+.env
 
 # macOS
 .DS_Store
+
+# Local editor/runtime leftovers
+.Rhistory
+.gitignore.save
