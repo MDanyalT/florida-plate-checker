@@ -19,3 +19,7 @@ __pycache__/
 # Local editor/runtime leftovers
 .Rhistory
 .gitignore.save
+
+user_data/
+setup_logs/
+dist/
