@@ -1,0 +1,174 @@
+{% extends "base.html" %}
+{% from "partials/macros.html" import plate, status_badge, freshness, favorite_form, empty, help_tip %}
+{% block title %}Saved plates · Florida Plate Finder{% endblock %}
+{% macro qs(overrides) -%}
+  {%- set d = dict(query_dict) -%}
+  {%- for k, v in overrides.items() -%}{%- if v is none -%}{%- set _ = d.pop(k, none) -%}{%- else -%}{%- set _ = d.update({k: v}) -%}{%- endif -%}{%- endfor -%}
+  ?{{ d|urlencode }}
+{%- endmacro %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <h1>Saved plates</h1>
+    <p class="lead">{% if counts.total %}{{ counts.total }} plate{{ '' if counts.total == 1 else 's' }} saved. Statuses show what the official site reported when each plate was last checked.{% else %}Plates you save or check will appear here.{% endif %}</p>
+  </div>
+  <div class="page-actions">
+    <a class="button secondary" href="/explore">Find more plates</a>
+    <a class="button ghost" href="/exports/plates.csv?scope=filtered&amp;{{ filter_query }}">Export this list</a>
+  </div>
+</section>
+
+<nav class="filter-tabs" aria-label="Quick filters">
+  {% for key, label in show_filters.items() %}
+    {% set n = {'all': counts.total, 'available': counts.available, 'unavailable': counts.unavailable, 'unchecked': counts.unchecked, 'review': counts.invalid + counts.unknown + counts.error, 'favorites': counts.favorites, 'changed': counts.changed}[key] %}
+    {% if key != 'review' or n %}
+      <a href="{{ qs({'show': none if key == 'all' else key, 'sort': none, 'direction': none}) }}" {% if show == key %}aria-current="true"{% endif %}>{{ label }} <span class="tab-count">{{ n }}</span></a>
+    {% endif %}
+  {% endfor %}
+</nav>
+
+<div class="library-toolbar">
+  <form class="search-form" method="get" action="/saved" role="search">
+    {% for k, v in query_dict.items() if k not in ['q', 'sort', 'direction'] %}<input type="hidden" name="{{ k }}" value="{{ v }}">{% endfor %}
+    <label class="field search-field"><span class="sr-only">Search saved plates</span>
+      <input class="input" type="search" name="q" value="{{ request.query_params.get('q', '') }}" placeholder="Search your plates"></label>
+    <label class="field"><span class="sr-only">Sort by</span>
+      <select class="input" name="sort" data-autosubmit>
+        {% for key, (label, _) in sort_options.items() %}<option value="{{ key }}" {% if key == sort_name %}selected{% endif %}>{{ label }}</option>{% endfor %}
+      </select></label>
+    <button class="button ghost" type="submit">Search</button>
+  </form>
+  <div class="view-toggle" role="group" aria-label="Layout">
+    <a class="seg" href="{{ qs({'view': none, 'page': none}) }}" aria-pressed="{{ 'true' if view == 'cards' else 'false' }}">Cards</a>
+    <a class="seg" href="{{ qs({'view': 'list', 'page': none}) }}" aria-pressed="{{ 'true' if view == 'list' else 'false' }}">List</a>
+  </div>
+</div>
+
+<details class="advanced filters-advanced" {% if advanced_active %}open{% endif %}>
+  <summary>More filters{% if advanced_active %} <span class="tab-count">on</span>{% endif %}</summary>
+  <form class="advanced-filters" method="get" action="/saved">
+    {% for k in ['q', 'show', 'view', 'sort'] %}{% if query_dict.get(k) %}<input type="hidden" name="{{ k }}" value="{{ query_dict[k] }}">{% endif %}{% endfor %}
+    <label class="field"><span class="field-label">Official result</span>
+      <select class="input" name="status"><option value="">Any result</option>{% for s in statuses %}<option value="{{ s }}" {% if request.query_params.get('status') == s %}selected{% endif %}>{{ s }}</option>{% endfor %}</select></label>
+    <label class="field"><span class="field-label">Length</span>
+      <select class="input" name="length"><option value="">Any length</option>{% for number in range(1, max_plate_length + 1) %}<option value="{{ number }}" {% if request.query_params.get('length') == number|string %}selected{% endif %}>{{ number }} characters</option>{% endfor %}</select></label>
+    <label class="field"><span class="field-label">Checked from</span><input class="input" type="date" name="date_from" value="{{ request.query_params.get('date_from', '') }}"></label>
+    <label class="field"><span class="field-label">Checked to</span><input class="input" type="date" name="date_to" value="{{ request.query_params.get('date_to', '') }}"></label>
+    <div class="check-stack">
+      <label class="check-row"><input type="checkbox" name="favorite" value="1" {% if request.query_params.get('favorite') == '1' %}checked{% endif %}><span>Favorites only</span></label>
+      <label class="check-row"><input type="checkbox" name="changed" value="1" {% if request.query_params.get('changed') == '1' %}checked{% endif %}><span>Status has changed</span></label>
+      <label class="check-row"><input type="checkbox" name="never_checked" value="1" {% if request.query_params.get('never_checked') == '1' %}checked{% endif %}><span>Never checked</span></label>
+    </div>
+    <div class="form-actions">
+      <button class="button primary small" type="submit">Apply filters</button>
+      <a class="button text small" href="/saved{% if view == 'list' %}?view=list{% endif %}">Clear all</a>
+    </div>
+  </form>
+</details>
+
+<form id="bulk-form" action="/plates/bulk" method="post" data-bulk-form data-threshold="{{ large_run_threshold }}" data-max="{{ max_run_size }}">
+  <input type="hidden" name="return_url" value="{{ return_url }}">
+  <input type="hidden" name="confirm_large" value="no">
+  <input type="hidden" name="confirm_delete" value="no">
+</form>
+
+{% if plates %}
+<div class="select-bar">
+  <label class="check-row"><input type="checkbox" data-select-page aria-controls="plate-collection"><span>Select all on this page</span></label>
+  <span class="muted">{{ total }} result{{ '' if total == 1 else 's' }}{% if pages > 1 %} · page {{ page }} of {{ pages }}{% endif %}</span>
+</div>
+
+<div id="plate-collection">
+{% if view == 'cards' %}
+  <ul class="plate-card-grid" aria-label="Saved plates">
+    {% for item in plates %}
+      {% set info = status_info(item, item.id in checking_ids) %}
+      <li class="plate-card card {% if item.favorite %}is-favorite{% endif %}">
+        <div class="plate-card-top">
+          <label class="select-box"><input type="checkbox" name="plate_ids" value="{{ item.id }}" form="bulk-form" data-row-check><span class="sr-only">Select {{ item.normalized_plate }}</span></label>
+          {{ favorite_form(item, return_url) }}
+        </div>
+        <a href="/plates/{{ item.id }}" class="plate-card-link" aria-label="{{ item.normalized_plate }}: {{ info.label }}. View details">{{ plate(item.normalized_plate, 'sm') }}</a>
+        <div class="plate-card-meta">
+          {{ status_badge(info) }}
+          {{ freshness(item, info) }}
+          {% if item.notes %}<p class="note-snippet" title="{{ item.notes }}">“{{ item.notes|truncate(60) }}”</p>{% endif %}
+        </div>
+        <div class="plate-card-actions">
+          <a class="button text small" href="/plates/{{ item.id }}">Details</a>
+          <form action="/runs/start" method="post" class="inline-form">
+            <input type="hidden" name="plate_ids" value="{{ item.id }}">
+            <input type="hidden" name="return_url" value="{{ return_url }}">
+            <button class="button ghost small" type="submit" {% if info.key == 'checking' %}disabled{% endif %}>{{ 'Check now' if not item.last_checked_at else 'Check again' }}</button>
+          </form>
+        </div>
+      </li>
+    {% endfor %}
+  </ul>
+{% else %}
+  <div class="table-card card">
+    <table class="data-table responsive-table">
+      <caption class="sr-only">Saved plates, list view</caption>
+      <thead><tr>
+        <th scope="col"><span class="sr-only">Select</span></th>
+        <th scope="col"><a href="{{ qs({'sort': 'plate', 'direction': none}) }}">Plate</a></th>
+        <th scope="col"><a href="{{ qs({'sort': 'status', 'direction': none}) }}">Availability</a></th>
+        <th scope="col"><a href="{{ qs({'sort': 'checked', 'direction': none}) }}">Last checked</a></th>
+        <th scope="col" class="col-advanced"><a href="{{ qs({'sort': 'changed', 'direction': none}) }}">Changed</a></th>
+        <th scope="col" class="col-advanced"><a href="{{ qs({'sort': 'count', 'direction': none}) }}">Checks</a></th>
+        <th scope="col">Favorite</th>
+        <th scope="col"><span class="sr-only">Actions</span></th>
+      </tr></thead>
+      <tbody>
+      {% for item in plates %}
+        {% set info = status_info(item, item.id in checking_ids) %}
+        <tr>
+          <td data-label="Select"><input type="checkbox" name="plate_ids" value="{{ item.id }}" form="bulk-form" data-row-check aria-label="Select {{ item.normalized_plate }}"></td>
+          <th scope="row" data-label="Plate"><a href="/plates/{{ item.id }}" class="plate-link">{{ plate(item.normalized_plate, 'xs') }}<span class="sr-only">View {{ item.normalized_plate }}</span></a>{% if item.notes %}<span class="note-dot" title="{{ item.notes }}">note</span>{% endif %}</th>
+          <td data-label="Availability">{{ status_badge(info) }}</td>
+          <td data-label="Last checked">{% if item.last_checked_at %}<time datetime="{{ item.last_checked_at.isoformat() }}" title="{{ item.last_checked_at|datetime }}">{{ item.last_checked_at|shortdate }}</time>{% if info.stale %} <span class="stale-flag">re-check?</span>{% endif %}{% else %}<span class="muted">Never</span>{% endif %}</td>
+          <td data-label="Changed" class="col-advanced">{% if item.status_changed_at %}{{ item.previous_status }} → {{ item.current_status }}<br><small class="muted">{{ item.status_changed_at|shortdate }}</small>{% else %}<span class="muted">—</span>{% endif %}</td>
+          <td data-label="Checks" class="col-advanced">{{ item.check_count }}</td>
+          <td data-label="Favorite">{{ favorite_form(item, return_url) }}</td>
+          <td data-label="Actions" class="row-actions">
+            <a class="button text small" href="/plates/{{ item.id }}">Details</a>
+            <form action="/runs/start" method="post" class="inline-form">
+              <input type="hidden" name="plate_ids" value="{{ item.id }}">
+              <input type="hidden" name="return_url" value="{{ return_url }}">
+              <button class="button ghost small" type="submit" {% if info.key == 'checking' %}disabled{% endif %}>Check</button>
+            </form>
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endif %}
+</div>
+
+{% if pages > 1 %}
+<nav class="pager" aria-label="Pages">
+  {% if page > 1 %}<a class="button ghost small" href="?{{ pagination_query }}&amp;page={{ page - 1 }}" rel="prev">← Previous</a>{% else %}<span></span>{% endif %}
+  <span class="muted">Page {{ page }} of {{ pages }}</span>
+  {% if page < pages %}<a class="button ghost small" href="?{{ pagination_query }}&amp;page={{ page + 1 }}" rel="next">Next →</a>{% else %}<span></span>{% endif %}
+</nav>
+{% endif %}
+
+<div class="action-bar" data-action-bar>
+  <span class="action-count"><strong data-selected-count>0</strong> selected</span>
+  <div class="action-buttons">
+    <button class="button ghost small" type="submit" form="bulk-form" name="bulk_action" value="favorite" data-needs-selection>♥ Favorite</button>
+    <button class="button ghost small" type="submit" form="bulk-form" name="bulk_action" value="unfavorite" data-needs-selection>Unfavorite</button>
+    <button class="button ghost small danger" type="submit" form="bulk-form" name="bulk_action" value="delete" data-needs-selection data-bulk-delete>Delete</button>
+    <button class="button primary" type="submit" form="bulk-form" formaction="/runs/start" data-needs-selection data-bulk-check>Check availability</button>
+  </div>
+</div>
+
+{% else %}
+  {% if counts.total %}
+    {{ empty('No plates match', 'Try a different search or filter.', '/saved', 'Show all saved plates') }}
+  {% else %}
+    {{ empty('No saved plates yet', 'Check a plate from the home page, or explore ideas and save the ones you like.', '/explore', 'Explore plate ideas') }}
+  {% endif %}
+{% endif %}
+{% endblock %}

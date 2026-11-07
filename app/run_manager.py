@@ -28,6 +28,14 @@ class RunManager:
         self._lock = threading.Lock()
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
+        self._active_plate_ids: frozenset[int] = frozenset()
+
+    @property
+    def active_plate_ids(self) -> frozenset[int]:
+        """Plate ids queued in the run currently being processed (empty when idle)."""
+
+        thread = self._thread
+        return self._active_plate_ids if thread and thread.is_alive() else frozenset()
 
     def recover_interrupted_runs(self) -> None:
         with self.session_factory() as session:
@@ -67,6 +75,7 @@ class RunManager:
                 ordered_ids = [plate.id for plate in ordered]
 
             self._stop_event = threading.Event()
+            self._active_plate_ids = frozenset(ordered_ids)
             self._thread = threading.Thread(
                 target=self._worker,
                 args=(run_id, ordered_ids),

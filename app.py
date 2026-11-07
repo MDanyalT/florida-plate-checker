@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Launch the Florida Plate Research dashboard at http://127.0.0.1:8000."""
+"""Launch Florida Plate Finder at http://127.0.0.1:8000."""
 
 from __future__ import annotations
 
@@ -23,8 +23,8 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(
-    title="Florida Plate Research",
-    description="Local, responsible FLHSMV personalized plate research dashboard.",
+    title="Florida Plate Finder",
+    description="Local, responsible Florida personalized plate discovery and checking app.",
     lifespan=lifespan,
 )
 app.mount("/static", StaticFiles(directory=str(PROJECT_ROOT / "static")), name="static")

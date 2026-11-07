@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% from "partials/macros.html" import plate as plate_preview, status_badge, freshness, favorite_form, help_tip %}
+{% block title %}{{ plate.normalized_plate }} · Florida Plate Finder{% endblock %}
+{% set info = status_info(plate, checking) %}
+{% set here = '/plates/' ~ plate.id %}
+{% block content %}
+<nav class="breadcrumbs" aria-label="Breadcrumb"><a href="/saved">Saved plates</a> <span aria-hidden="true">/</span> <span aria-current="page">{{ plate.normalized_plate }}</span></nav>
+
+<section class="detail-layout" {% if checking %}data-watch-run{% endif %}>
+  <div class="detail-hero card">
+    {{ plate_preview(plate.normalized_plate, 'lg') }}
+    <div class="detail-status status-panel status-panel-{{ info.key }}">
+      <div class="status-line">
+        {{ status_badge(info) }}
+        {% if info.stale %}<span class="stale-flag">Checked over a week ago</span>{% endif %}
+      </div>
+      <p class="status-title">{{ info.label }}</p>
+      <p class="status-detail">{{ info.detail }}</p>
+      {% if plate.last_checked_at %}
+        <p class="status-time">Last checked <time datetime="{{ plate.last_checked_at.isoformat() }}">{{ plate.last_checked_at|datetime }}</time> ({{ plate.last_checked_at|timeago }})</p>
+      {% endif %}
+      {% if checking %}<p class="status-time"><span class="spinner small" aria-hidden="true"></span> This page will refresh when the check finishes.</p>{% endif %}
+    </div>
+    <div class="detail-actions">
+      <form action="/runs/start" method="post" class="inline-form">
+        <input type="hidden" name="plate_ids" value="{{ plate.id }}">
+        <input type="hidden" name="return_url" value="{{ here }}">
+        <button class="button primary" type="submit" {% if checking %}disabled{% endif %}>{{ 'Check availability' if not plate.last_checked_at else 'Check again' }}</button>
+      </form>
+      <form action="/plates/{{ plate.id }}/favorite" method="post" class="inline-form">
+        <input type="hidden" name="return_url" value="{{ here }}">
+        <button class="button secondary" type="submit" aria-pressed="{{ 'true' if plate.favorite else 'false' }}">{{ '♥ In favorites' if plate.favorite else '♡ Add to favorites' }}</button>
+      </form>
+      <a class="button ghost" href="{{ flhsmv_url }}" target="_blank" rel="noopener">Verify on the official site ↗</a>
+    </div>
+    <p class="note">Results reflect what the FLHSMV site reported at the time of checking. This site can't reserve or order plates. To order, use Florida's official channels, such as your county tax collector's office.</p>
+  </div>
+
+  <div class="detail-side">
+    <section class="card" aria-labelledby="facts-title">
+      <h2 class="h4" id="facts-title">Details</h2>
+      <dl class="facts">
+        <div><dt>Official response {{ help_tip('The exact text the FLHSMV site displayed for this plate the last time it was checked.', 'tip-raw') }}</dt><dd class="mono-soft">{{ plate.raw_result or '—' }}</dd></div>
+        <div><dt>First checked</dt><dd>{{ plate.first_checked_at|datetime }}</dd></div>
+        <div><dt>Times checked</dt><dd>{{ plate.check_count }}</dd></div>
+        <div><dt>Previous result</dt><dd>{{ plate.previous_status or '—' }}{% if plate.status_changed_at %} <span class="muted">(changed {{ plate.status_changed_at|shortdate }})</span>{% endif %}</dd></div>
+        <div><dt>Saved</dt><dd>{{ plate.created_at|datetime }}</dd></div>
+      </dl>
+    </section>
+
+    <section class="card" aria-labelledby="notes-title">
+      <h2 class="h4" id="notes-title"><label for="notes">Private notes</label></h2>
+      <form action="/plates/{{ plate.id }}/notes" method="post" class="stack">
+        <input type="hidden" name="return_url" value="{{ here }}">
+        <textarea class="input" id="notes" name="notes" rows="4" maxlength="2000" placeholder="Why you like it, who it's for, ideas to try…">{{ plate.notes }}</textarea>
+        <div class="form-actions"><button class="button secondary small" type="submit">Save notes</button></div>
+      </form>
+    </section>
+  </div>
+</section>
+
+<section class="card timeline-card" aria-labelledby="timeline-title">
+  <div class="section-head">
+    <h2 class="h3" id="timeline-title">Check history</h2>
+    {% if history %}<a class="button text small" href="/history?plate_id={{ plate.id }}">Full record</a>{% endif %}
+  </div>
+  {% if history %}
+    <ol class="timeline">
+      {% for entry in history %}
+        {% set key = 'available' if entry.status == 'Available' else 'unavailable' if entry.status == 'Not available' else 'review' %}
+        <li class="timeline-item tone-{{ key }}">
+          <span class="timeline-dot" aria-hidden="true"></span>
+          <div>
+            <strong>{{ 'Available' if key == 'available' else 'Unavailable' if key == 'unavailable' else 'Needs verification (' ~ entry.status|lower ~ ')' }}</strong>
+            <span class="muted"> · <time datetime="{{ entry.checked_at.isoformat() }}">{{ entry.checked_at|datetime }}</time></span>
+            {% if entry.raw_result %}<p class="mono-soft small">Official response: {{ entry.raw_result }}</p>{% endif %}
+          </div>
+        </li>
+      {% endfor %}
+    </ol>
+  {% else %}
+    <p class="muted">No checks yet. Press <strong>Check availability</strong> to ask the official site.</p>
+  {% endif %}
+</section>
+
+<section class="danger-zone">
+  <form action="/plates/{{ plate.id }}/delete" method="post" data-confirm="Remove {{ plate.normalized_plate }} from your saved plates? Its check history will be deleted too. This can't be undone." data-confirm-title="Remove this plate?" data-confirm-action="Remove plate" data-confirm-danger>
+    <input type="hidden" name="return_url" value="/saved">
+    <button class="button text danger small" type="submit">Remove this plate</button>
+  </form>
+</section>
+{% endblock %}

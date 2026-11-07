@@ -1,0 +1,349 @@
+{% extends "base.html" %}
+{% from "partials/macros.html" import plate, help_tip %}
+{% block title %}Explore plates · Florida Plate Finder{% endblock %}
+{% set fv = form_values %}
+{% set preset = fv.get('pattern_type') if fv.get('pattern_type') in preset_patterns else 'prefix_number' %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <h1>Explore plates</h1>
+    <p class="lead">Create ideas, preview every combination, then choose which ones to save or check. Nothing is checked until you say so.</p>
+  </div>
+</section>
+
+<ol class="steps" aria-label="How exploring works">
+  <li class="{% if not generation_json %}is-current{% else %}is-done{% endif %}"><span>1</span>Set up</li>
+  <li class="{% if generation_json %}is-current{% endif %}"><span>2</span>Preview</li>
+  <li><span>3</span>Pick favorites</li>
+  <li><span>4</span>Save or check</li>
+</ol>
+
+<div class="mode-tabs" role="tablist" aria-label="Ways to explore">
+  <a role="tab" id="tab-ideas" href="?mode=ideas" aria-controls="panel-ideas" aria-selected="{{ 'true' if mode == 'ideas' else 'false' }}" data-mode-tab="ideas">
+    <span class="tab-title">Plate ideas</span><span class="tab-sub">From a word or name</span>
+  </a>
+  <a role="tab" id="tab-builder" href="?mode=builder" aria-controls="panel-builder" aria-selected="{{ 'true' if mode == 'builder' else 'false' }}" data-mode-tab="builder">
+    <span class="tab-title">Pattern builder</span><span class="tab-sub">Choose each spot</span>
+  </a>
+  <a role="tab" id="tab-patterns" href="?mode=patterns" aria-controls="panel-patterns" aria-selected="{{ 'true' if mode == 'patterns' else 'false' }}" data-mode-tab="patterns">
+    <span class="tab-title">Ready-made patterns</span><span class="tab-sub">Popular styles</span>
+  </a>
+</div>
+
+{% if generator_error %}
+  <div class="flash error" role="alert"><span class="flash-icon" aria-hidden="true">!</span><p>{{ generator_error }}</p></div>
+{% endif %}
+
+{# ------------------------------------------------------------------ Ideas #}
+<section class="mode-panel card" role="tabpanel" id="panel-ideas" aria-labelledby="tab-ideas" {% if mode != 'ideas' %}hidden{% endif %}>
+  <form action="/explore/preview" method="post" class="explore-form" data-estimate-form>
+    <input type="hidden" name="pattern_type" value="plate_ideas">
+    <input type="hidden" name="seed" value="{{ fv.get('seed', '0') }}" data-seed>
+    <div class="ideas-layout">
+      <div class="ideas-main">
+        <label class="field-label large" for="idea-word">What would you like your plate to say?</label>
+        <input id="idea-word" class="input input-xl" name="word" type="text" value="{{ fv.get('word', '') }}" placeholder="A name, word, nickname, or theme, e.g. Beach Life" maxlength="200" autocomplete="off" required data-idea-input>
+        <p class="field-hint">Separate several ideas with commas, like <em>Sunny, Gator, Keys</em>.</p>
+
+        <fieldset class="chip-group">
+          <legend class="field-label">Kinds of ideas</legend>
+          {% set idea_choices = [
+            ('similar', 'Similar variations', 'MYSUNNY, SUNNYS'),
+            ('shorter', 'Shorter versions', 'SNNY, SUN'),
+            ('numbers', 'Add numbers', 'SUNNY7, SUN305'),
+            ('substitutions', 'Creative substitutions', '5UNNY, GR8'),
+            ('surprise', 'Surprise me', 'A shuffled mix'),
+          ] %}
+          {% for value, label, example in idea_choices %}
+            <label class="chip">
+              <input type="checkbox" name="idea_options" value="{{ value }}" {% if value in idea_values %}checked{% endif %} {% if value == 'surprise' %}data-surprise{% endif %}>
+              <span><strong>{{ label }}</strong><small>{{ example }}</small></span>
+            </label>
+          {% endfor %}
+        </fieldset>
+        <p class="note">Ideas come from simple spelling rules (no AI), and only plates of {{ max_plate_length }} characters or fewer are kept.</p>
+      </div>
+      <aside class="estimate-panel" aria-live="polite">
+        <div data-estimate-preview>{{ plate(((fv.get('word', '') or '')|upper|replace(' ', ''))[:max_plate_length], 'md', live=true, placeholder='IDEAS') }}</div>
+        <p class="estimate-count" data-estimate-count>Type something to see how many ideas you'll get.</p>
+        <div class="example-list" data-estimate-examples></div>
+        <div class="form-actions">
+          <button class="button primary button-lg" type="submit">Show ideas</button>
+          <button class="button ghost" type="submit" data-reshuffle {% if 'surprise' not in idea_values %}hidden{% endif %}>Shuffle again</button>
+        </div>
+      </aside>
+    </div>
+  </form>
+</section>
+
+{# ---------------------------------------------------------------- Builder #}
+<section class="mode-panel card" role="tabpanel" id="panel-builder" aria-labelledby="tab-builder" {% if mode != 'builder' %}hidden{% endif %}>
+  <form action="/explore/preview" method="post" class="explore-form" data-estimate-form data-builder-form>
+    <input type="hidden" name="pattern_type" value="pattern_builder">
+    <input type="hidden" name="slots" value="{{ fv.get('slots', '') }}" data-slots-input>
+
+    <div class="builder-intro">
+      <div>
+        <h2 class="h3">Build a pattern, one spot at a time</h2>
+        <p class="muted">Each tile is a spot on your plate. Make it a fixed word, any letter, any digit, or your own short list.</p>
+      </div>
+      <div class="preset-row" role="group" aria-label="Start from an example">
+        <span class="field-label">Start from:</span>
+        <button type="button" class="pill-button" data-preset="word2">SUN + 2 digits</button>
+        <button type="button" class="pill-button" data-preset="letter2">Letter + 2 digits</button>
+        <button type="button" class="pill-button" data-preset="letters3">3 letters</button>
+        <button type="button" class="pill-button" data-preset="mirror">Mirror 1221</button>
+        <button type="button" class="pill-button" data-preset="initials">Initials + year</button>
+      </div>
+    </div>
+
+    <noscript><p class="flash warning">The visual builder needs JavaScript. You can still use a typed template under <strong>Advanced options</strong> in Ready-made patterns.</p></noscript>
+
+    <div class="builder-layout">
+      <div class="builder-main">
+        <div class="slot-row" data-slot-row role="listbox" aria-label="Plate positions. Select one to edit it."></div>
+        <div class="add-row" role="group" aria-label="Add a position">
+          <span class="field-label">Add a spot:</span>
+          <button type="button" class="button ghost small" data-add-slot="fixed">+ Fixed text</button>
+          <button type="button" class="button ghost small" data-add-slot="letter">+ Any letter</button>
+          <button type="button" class="button ghost small" data-add-slot="digit">+ Any digit</button>
+          <button type="button" class="button ghost small" data-add-slot="custom">+ My own list</button>
+        </div>
+
+        <div class="slot-editor card-inset" data-slot-editor hidden>
+          <div class="slot-editor-head">
+            <h3 class="h4" data-slot-editor-title>Spot 1</h3>
+            <div class="slot-editor-tools">
+              <button type="button" class="icon-btn" data-move="-1" aria-label="Move this spot left">←</button>
+              <button type="button" class="icon-btn" data-move="1" aria-label="Move this spot right">→</button>
+              <button type="button" class="icon-btn danger" data-remove-slot aria-label="Remove this spot">Remove</button>
+            </div>
+          </div>
+          <div class="slot-editor-grid">
+            <label class="field">
+              <span class="field-label">What goes here?</span>
+              <select class="input" data-slot-kind>
+                <option value="fixed">Fixed text (always the same)</option>
+                <option value="letter">Any letter A–Z</option>
+                <option value="digit">Any digit 0–9</option>
+                <option value="alnum">Any letter or digit</option>
+                <option value="custom">Only these characters…</option>
+              </select>
+            </label>
+            <label class="field" data-slot-value-wrap>
+              <span class="field-label" data-slot-value-label>Text</span>
+              <input class="input mono" type="text" data-slot-value maxlength="{{ max_plate_length }}" autocomplete="off" autocapitalize="characters" spellcheck="false">
+            </label>
+            <label class="field" data-slot-link-wrap>
+              <span class="field-label">Varies on its own, or repeats a spot? {{ help_tip('Pick "Same as spot 2" to make this spot always repeat spot 2, so 1·2·2·1 patterns become possible.', 'tip-link') }}</span>
+              <select class="input" data-slot-link></select>
+            </label>
+            <label class="check-row" data-slot-optional-wrap>
+              <input type="checkbox" data-slot-optional>
+              <span>This spot can also be left out</span>
+            </label>
+          </div>
+        </div>
+
+        <details class="advanced">
+          <summary>Advanced options</summary>
+          <div class="advanced-body">
+            <p><strong>Pattern summary:</strong> <span data-pattern-summary class="mono-soft">—</span></p>
+            <p class="muted">Prefer typing? The <a href="?mode=patterns&amp;pattern=custom_template" data-open-template>custom template</a> in Ready-made patterns accepts codes like <code>{WORD}{NN}</code>, <code>{L}</code> (any letter) and <code>{N}</code> (any digit).</p>
+          </div>
+        </details>
+      </div>
+
+      <aside class="estimate-panel" aria-live="polite">
+        <div data-estimate-preview>{{ plate('', 'md', live=true, placeholder='SUN00') }}</div>
+        <p class="estimate-count" data-estimate-count>Calculating…</p>
+        <p class="estimate-warning" data-estimate-warning hidden></p>
+        <div class="example-list" data-estimate-examples></div>
+        <div class="form-actions">
+          <button class="button primary button-lg" type="submit" data-generate-button>Preview combinations</button>
+        </div>
+      </aside>
+    </div>
+  </form>
+</section>
+
+{# ---------------------------------------------------------------- Presets #}
+<section class="mode-panel card" role="tabpanel" id="panel-patterns" aria-labelledby="tab-patterns" {% if mode != 'patterns' %}hidden{% endif %}>
+  <form action="/explore/preview" method="post" class="explore-form" data-estimate-form data-preset-form>
+    <fieldset class="pattern-grid">
+      <legend class="h3">Choose a style</legend>
+      {% set cards = [
+        ('prefix_number', 'Your word + a number', 'A word you choose, followed by each number in a range.', 'SUN7'),
+        ('single_letter_numbers', 'Letter + number', 'Every letter A–Z followed by numbers in your range.', 'A100'),
+        ('number_letter', 'Number + letter', 'Numbers in your range followed by every letter A–Z.', '786A'),
+        ('letter_number_letter', 'Letters around a number', 'A letter, a number from your range, then another letter.', 'T7A'),
+        ('repeated_digits', 'Repeated digit', 'The same digit repeated, like 7777 or 333.', '7777'),
+        ('mirrored_numbers', 'Mirrored number', 'Numbers that read the same both ways.', '1221'),
+        ('sequential_numbers', 'Counting digits', 'Digits that count up in order, wrapping after 9.', '12345'),
+        ('two_letters', 'Two letters', 'Every two-letter combination from AA to ZZ.', 'AZ'),
+        ('keyword_variations', 'Keyword variations', 'Shortened and number-swapped versions of your words.', 'TAR1Q7'),
+        ('custom_template', 'Custom template', 'Type a pattern code for full control.', 'SUN07'),
+      ] %}
+      {% for value, title, text, example in cards %}
+        <label class="pattern-card">
+          <input type="radio" name="pattern_type" value="{{ value }}" {% if value == preset %}checked{% endif %} data-pattern-radio>
+          <span class="pattern-card-body">
+            {{ plate(example, 'xs') }}
+            <span class="pattern-card-title">{{ title }}</span>
+            <span class="pattern-card-text">{{ text }}</span>
+          </span>
+          <span class="pattern-check" aria-hidden="true">✓</span>
+        </label>
+      {% endfor %}
+    </fieldset>
+
+    <div class="pattern-config">
+      <div class="pattern-fields">
+        <h3 class="h4">Settings</h3>
+        <div class="field-group" data-for="prefix_number">
+          <label class="field"><span class="field-label">Your word</span>
+            <input class="input mono" type="text" name="prefix" maxlength="{{ max_plate_length }}" value="{{ fv.get('prefix', 'SUN') }}" placeholder="SUN" autocapitalize="characters"></label>
+        </div>
+        <div class="field-group" data-for="keyword_variations">
+          <label class="field"><span class="field-label">Your words</span>
+            <textarea class="input" name="keywords" rows="3" placeholder="Tariq, Gator, Keys">{{ fv.get('keywords', '') }}</textarea></label>
+          <p class="field-hint">Separate words with commas or new lines.</p>
+          <label class="check-row"><input type="checkbox" name="substitutions" value="1" {% if fv.get('substitutions') %}checked{% endif %}><span>Also swap letters for look-alike numbers (A→4, E→3, I→1, O→0, S→5, T→7)</span></label>
+        </div>
+        <div class="field-group" data-for="single_letter_numbers number_letter prefix_number letter_number_letter keyword_variations">
+          <div class="field-row">
+            <label class="field"><span class="field-label" data-range-label>Numbers from</span>
+              <input class="input" type="number" name="start" inputmode="numeric" value="{{ fv.get('start', '0') }}"></label>
+            <label class="field"><span class="field-label">to</span>
+              <input class="input" type="number" name="end" inputmode="numeric" value="{{ fv.get('end', '99') }}"></label>
+          </div>
+          <p class="field-hint">Numbers aren't padded: 7 stays 7, not 07. Ranges can include up to 10,001 numbers.</p>
+        </div>
+        <div class="field-group" data-for="repeated_digits mirrored_numbers sequential_numbers">
+          <label class="field"><span class="field-label">How many digits?</span>
+            <select class="input" name="length">
+              {% for n in range(2, max_plate_length + 1) %}<option value="{{ n }}" {% if fv.get('length', '4') == n|string %}selected{% endif %}>{{ n }} digits</option>{% endfor %}
+            </select></label>
+        </div>
+        <div class="field-group" data-for="two_letters">
+          <p class="muted">No settings needed. This creates all 676 combinations from AA to ZZ.</p>
+        </div>
+        <div class="field-group" data-for="custom_template">
+          <label class="field"><span class="field-label">Pattern code</span>
+            <input class="input mono" type="text" name="template" value="{{ fv.get('template', '{WORD}{NN}') }}" placeholder="{WORD}{NN}" spellcheck="false" autocomplete="off"></label>
+          <label class="field"><span class="field-label">Word for <code>{WORD}</code></span>
+            <input class="input mono" type="text" name="word" value="{{ fv.get('word', 'SUN') if fv.get('pattern_type') != 'plate_ideas' else 'SUN' }}" placeholder="SUN" autocapitalize="characters"></label>
+          <ul class="code-legend">
+            <li><code>{L}</code> any letter A–Z</li>
+            <li><code>{N}</code> any digit 0–9</li>
+            <li><code>{NN}</code> two digits 00–99</li>
+            <li><code>{WORD}</code> your word</li>
+          </ul>
+          <p class="field-hint">Anything else is kept as typed. Prefer clicking? Use the <a href="?mode=builder" data-mode-link="builder">Pattern builder</a>.</p>
+        </div>
+      </div>
+      <aside class="estimate-panel" aria-live="polite">
+        <div data-estimate-preview>{{ plate('', 'md', live=true, placeholder='SUN7') }}</div>
+        <p class="estimate-count" data-estimate-count>Calculating…</p>
+        <p class="estimate-warning" data-estimate-warning hidden></p>
+        <div class="example-list" data-estimate-examples></div>
+        <div class="form-actions">
+          <button class="button primary button-lg" type="submit">Preview combinations</button>
+        </div>
+      </aside>
+    </div>
+  </form>
+</section>
+
+{# ---------------------------------------------------------------- Results #}
+{% if generation_json %}
+<section class="results card" id="results" aria-labelledby="results-title" data-results data-bulk-max="{{ max_run_size }}">
+  <div class="results-head">
+    <div>
+      <h2 id="results-title">{{ "{:,}".format(generation_json.candidates|length) }} plate{{ '' if generation_json.candidates|length == 1 else 's' }} to review</h2>
+      <p class="muted">Pick the ones you like, then save them or check their availability. Nothing has been saved or checked yet.</p>
+    </div>
+    <div class="result-facts">
+      <span class="fact">{{ "{:,}".format(generation_json.generated) }} created</span>
+      {% if generation_json.duplicates %}<span class="fact">{{ "{:,}".format(generation_json.duplicates) }} duplicates removed</span>{% endif %}
+      {% if generation_json.rejectedCount %}<span class="fact fact-warn">{{ "{:,}".format(generation_json.rejectedCount) }} too long or invalid</span>{% endif %}
+      {% if generation_json.known %}<span class="fact fact-good">{{ generation_json.known|length }} already saved</span>{% endif %}
+    </div>
+  </div>
+
+  {% if generation_json.candidates %}
+  <div class="results-toolbar">
+    <label class="field search-field"><span class="sr-only">Search these results</span>
+      <input class="input" type="search" placeholder="Search these results" data-results-search></label>
+    <label class="field"><span class="sr-only">Show</span>
+      <select class="input" data-results-filter>
+        <option value="all">Show all</option>
+        <option value="new">Not saved yet</option>
+        <option value="saved">Already saved</option>
+        <option value="available">Available when last checked</option>
+        <option value="unavailable">Unavailable when last checked</option>
+        <option value="favorites">Favorites</option>
+      </select></label>
+    <label class="field"><span class="sr-only">Sort</span>
+      <select class="input" data-results-sort>
+        <option value="default">Original</option>
+        <option value="az">A to Z</option>
+        <option value="za">Z to A</option>
+        <option value="short">Shortest first</option>
+      </select></label>
+    <div class="view-toggle" role="group" aria-label="Layout">
+      <button type="button" class="seg" aria-pressed="true" data-results-view="grid">Cards</button>
+      <button type="button" class="seg" aria-pressed="false" data-results-view="list">List</button>
+    </div>
+  </div>
+
+  <div class="select-bar">
+    <span data-results-summary aria-live="polite"></span>
+    <div class="select-actions">
+      <button type="button" class="button text small" data-select="page">Select this page</button>
+      <button type="button" class="button text small" data-select="all">Select all matching</button>
+      <button type="button" class="button text small" data-select="none">Clear selection</button>
+    </div>
+  </div>
+
+  <ul class="result-grid" data-results-grid aria-label="Generated plates"></ul>
+  <nav class="pager" aria-label="Result pages" data-results-pager></nav>
+
+  <div class="action-bar" data-action-bar>
+    <span class="action-count"><strong data-selected-count>0</strong> selected</span>
+    <div class="action-buttons">
+      <button type="button" class="button ghost" data-bulk="favorite" disabled>♥ Favorite</button>
+      <button type="button" class="button secondary" data-bulk="save" disabled>Save to my plates</button>
+      <button type="button" class="button primary" data-bulk="check" disabled>Check availability</button>
+    </div>
+  </div>
+  <p class="note">Checking opens the official FLHSMV site in a visible browser on this computer, five plates at a time with pauses between batches. Up to {{ max_run_size }} plates per check.</p>
+  {% else %}
+    <div class="empty-state">
+      <div class="empty-art" aria-hidden="true"><span></span></div>
+      <h3>Nothing fit on a plate</h3>
+      <p>Every result was longer than {{ max_plate_length }} characters or used characters plates can't have. Try a shorter word or fewer fixed spots.</p>
+    </div>
+  {% endif %}
+
+  {% if generation_json.rejectedCount %}
+  <details class="advanced">
+    <summary>Why {{ "{:,}".format(generation_json.rejectedCount) }} weren't included</summary>
+    <p class="mono-list">{{ generation_json.rejected|join(', ') }}{% if generation_json.rejectedCount > generation_json.rejected|length %} … and {{ generation_json.rejectedCount - generation_json.rejected|length }} more{% endif %}</p>
+  </details>
+  {% endif %}
+
+  <noscript>
+    <form action="/generator/import" method="post" class="noscript-results">
+      <input type="hidden" name="confirm_large" value="yes">
+      <p>Showing the first 300 results. Uncheck any you don't want, then save.</p>
+      <div class="candidate-grid">
+        {% for candidate in generation_json.candidates[:300] %}<label class="candidate-chip"><input type="checkbox" name="plates" value="{{ candidate }}" checked> {{ candidate }}</label>{% endfor %}
+      </div>
+      <button class="button primary" type="submit">Save selected</button>
+    </form>
+  </noscript>
+  <script type="application/json" id="generation-data">{{ generation_json|tojson }}</script>
+</section>
+{% endif %}
+{% endblock %}

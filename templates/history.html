@@ -1,23 +1,98 @@
 {% extends "base.html" %}
-{% block title %}History · Florida Plate Research{% endblock %}
+{% from "partials/macros.html" import plate, empty, help_tip %}
+{% block title %}Check history · Florida Plate Finder{% endblock %}
 {% block content %}
-<section class="page-heading">
-  <div><span class="eyebrow">A durable audit trail</span><h1>{% if selected_plate %}History for {{ selected_plate.normalized_plate }}{% else %}Check history{% endif %}</h1><p>Every completed result is recorded independently from the plate’s current status.</p></div>
-  <div class="page-actions"><a class="button ghost" href="/exports/history.csv">Export full history</a>{% if selected_plate %}<a class="button secondary" href="/history">Show all plates</a>{% endif %}</div>
+<section class="page-head">
+  <div>
+    <h1>{% if selected_plate %}History for {{ selected_plate.normalized_plate }}{% elif selected_run %}Check from {{ selected_run.started_at|shortdate }}{% else %}Check history{% endif %}</h1>
+    <p class="lead">Every time you check plates, the results are recorded here, separate from each plate's current status.</p>
+  </div>
+  <div class="page-actions">
+    {% if selected_plate or selected_run %}<a class="button secondary" href="/history">All history</a>{% endif %}
+    {% if selected_plate %}<a class="button ghost" href="/plates/{{ selected_plate.id }}">Plate details</a>{% endif %}
+    <a class="button ghost" href="/exports/history.csv">Export full history</a>
+  </div>
 </section>
 
-<section class="history-layout">
-  <article class="table-panel">
-    <div class="panel-heading inside"><div><span class="eyebrow">Result timeline</span><h2>Latest 500 checks</h2></div></div>
-    {% if entries %}<div class="table-wrap"><table><thead><tr><th>Checked</th><th>Plate</th><th>Status</th><th>Raw result</th><th>Batch</th><th>Run</th></tr></thead><tbody>
-    {% for entry in entries %}<tr><td>{{ entry.checked_at|datetime }}</td><td><span class="plate-display small">{{ entry.plate.normalized_plate }}</span></td><td><span class="status-badge status-{{ entry.status|lower|replace(' ', '-') }}">{{ entry.status }}</span></td><td>{{ entry.raw_result }}</td><td>{{ entry.batch_number }}</td><td>{% if entry.run_id %}#{{ entry.run_id }}{% else %}CLI{% endif %}</td></tr>{% endfor %}
-    </tbody></table></div>{% else %}<div class="empty-state large"><strong>No checks recorded</strong><p>History appears here as soon as a dashboard checking run saves its first result.</p></div>{% endif %}
-  </article>
+{% if not selected_plate %}
+<section aria-labelledby="runs-title">
+  <h2 class="h3" id="runs-title">{% if selected_run %}This check{% else %}Recent checks{% endif %}</h2>
+  {% set run_list = [selected_run] if selected_run else runs %}
+  {% if run_list %}
+  <ul class="run-cards">
+    {% for run in run_list %}
+      {% set ri = run_info(run) %}
+      <li class="run-card card tone-{{ ri.tone }}">
+        <div class="run-card-head">
+          <div>
+            <p class="run-date"><time datetime="{{ run.started_at.isoformat() }}">{{ run.started_at|datetime }}</time></p>
+            <p class="run-headline">{{ run.checked_count }} of {{ run.total_candidates }} plate{{ '' if run.total_candidates == 1 else 's' }} checked</p>
+          </div>
+          <span class="run-pill run-pill-{{ ri.tone }}">{% if ri.active %}<span class="spinner small" aria-hidden="true"></span>{% endif %}{{ ri.label }}</span>
+        </div>
+        <div class="progress-track small" role="progressbar" aria-label="Progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ ri.percent }}"><span style="width: {{ ri.percent }}%"></span></div>
+        <dl class="run-stats">
+          <div class="stat-available"><dt>✓ Available</dt><dd>{{ run.available_count }}</dd></div>
+          <div class="stat-unavailable"><dt>✕ Unavailable</dt><dd>{{ run.unavailable_count }}</dd></div>
+          <div><dt>! Need verification</dt><dd>{{ ri.needs_review }}</dd></div>
+          {% if ri.remaining and not ri.active %}<div><dt>Not reached</dt><dd>{{ ri.remaining }}</dd></div>{% endif %}
+        </dl>
+        {% if run.error_message %}<p class="run-error"><strong>What happened:</strong> {{ run.error_message }}</p>{% endif %}
+        <div class="run-card-foot">
+          {% if not selected_run %}<a class="button text small" href="/history?run_id={{ run.id }}">See results</a>{% endif %}
+          <details class="tech">
+            <summary>Technical details</summary>
+            <dl class="tech-list">
+              <div><dt>Run number</dt><dd>#{{ run.id }}</dd></div>
+              <div><dt>Status code</dt><dd><code>{{ run.status }}</code></dd></div>
+              <div><dt>Started</dt><dd>{{ run.started_at|datetime }}</dd></div>
+              <div><dt>Completed</dt><dd>{{ run.completed_at|datetime }}</dd></div>
+              <div><dt>Duration</dt><dd>{{ ri.duration }}</dd></div>
+              <div><dt>Speed</dt><dd>{{ ri.per_minute }} plates/min</dd></div>
+              <div><dt>Last batch</dt><dd>{{ run.current_batch }}</dd></div>
+              <div><dt>Last plate processed</dt><dd>{{ run.last_processed_plate or '—' }}</dd></div>
+              <div><dt>Invalid / Unknown / Error</dt><dd>{{ run.invalid_count }} / {{ run.unknown_count }} / {{ run.error_count }}</dd></div>
+            </dl>
+            <p class="muted small">Retries happen automatically (up to the configured limit) and aren't recorded per batch; a run that exhausts them ends with an explanation above.</p>
+          </details>
+        </div>
+      </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+    {{ empty('No checks yet', 'When you check plates, each session shows up here with a summary of what was found.', '/', 'Check a plate') }}
+  {% endif %}
+</section>
+{% endif %}
 
-  <aside class="panel run-list-panel">
-    <div class="panel-heading"><div><span class="eyebrow">Recent sessions</span><h2>Checking runs</h2></div></div>
-    {% if runs %}<div class="run-list">{% for run in runs %}<article><div><strong>Run #{{ run.id }}</strong><span class="status-badge status-{{ run.status|lower }}">{{ run.status }}</span></div><p>{{ run.checked_count }}/{{ run.total_candidates }} checked · {{ run.available_count }} available</p><time>{{ run.started_at|datetime }}</time>{% if run.error_message %}<small class="inline-error">{{ run.error_message }}</small>{% endif %}</article>{% endfor %}</div>{% else %}<div class="empty-state"><strong>No runs yet</strong></div>{% endif %}
-  </aside>
+<section class="card records-card" aria-labelledby="records-title">
+  <details class="records" {% if selected_plate or selected_run %}open{% endif %}>
+    <summary><h2 class="h3" id="records-title">Individual results</h2> <span class="muted">{% if selected_plate or selected_run %}{{ entries|length }}{% else %}latest {{ entries|length }} of {{ total_history }}{% endif %} records · official responses, batches, runs</span></summary>
+    {% if entries %}
+    <div class="table-scroll">
+      <table class="data-table responsive-table">
+        <caption class="sr-only">Individual check results</caption>
+        <thead><tr><th scope="col">Checked</th><th scope="col">Plate</th><th scope="col">Result</th><th scope="col">Official response</th><th scope="col">Batch</th><th scope="col">Run</th></tr></thead>
+        <tbody>
+        {% for entry in entries %}
+          <tr>
+            <td data-label="Checked"><time datetime="{{ entry.checked_at.isoformat() }}">{{ entry.checked_at|datetime }}</time></td>
+            <th scope="row" data-label="Plate"><a href="/plates/{{ entry.plate_id }}">{{ plate(entry.plate.normalized_plate, 'xs') }}</a></th>
+            <td data-label="Result">
+              {% set key = 'available' if entry.status == 'Available' else 'unavailable' if entry.status == 'Not available' else 'review' %}
+              <span class="badge badge-{{ key }}"><span class="badge-icon" aria-hidden="true">{{ '✓' if key == 'available' else '✕' if key == 'unavailable' else '!' }}</span>{{ entry.status }}</span>
+            </td>
+            <td data-label="Official response" class="mono-soft">{{ entry.raw_result }}</td>
+            <td data-label="Batch">{{ entry.batch_number }}</td>
+            <td data-label="Run">{% if entry.run_id %}<a href="/history?run_id={{ entry.run_id }}">#{{ entry.run_id }}</a>{% else %}Command line{% endif %}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+      <p class="muted pad">No results recorded{% if selected_plate %} for this plate{% endif %} yet.</p>
+    {% endif %}
+  </details>
 </section>
 {% endblock %}
-

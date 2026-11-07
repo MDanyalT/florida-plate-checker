@@ -1,0 +1,54 @@
+{# Reusable UI building blocks for the Florida Plate Finder design system. #}
+
+{% macro plate(text, size='md', label=true, placeholder='YOUR PLATE', live=false) -%}
+{%- set shown = text or placeholder -%}
+<div class="plate plate-{{ size }}" style="--len: {{ [shown|length, 3]|max }}" {% if live %}data-plate-preview{% endif %} role="img" aria-label="License plate preview: {{ text or placeholder }}">
+  {% if size != 'xs' %}<span class="plate-top" aria-hidden="true">FLORIDA</span>{% endif %}
+  <span class="plate-text {% if not text %}is-placeholder{% endif %}" aria-hidden="true" {% if live %}data-plate-text data-placeholder="{{ placeholder }}"{% endif %}>{{ text or placeholder }}</span>
+  {% if size in ['lg', 'md'] %}<span class="plate-bottom" aria-hidden="true">Sunshine State</span>{% endif %}
+</div>
+{%- endmacro %}
+
+{% macro status_badge(info, with_time=none) -%}
+<span class="badge badge-{{ info.key }}" title="{{ info.detail }}">
+  <span class="badge-icon" aria-hidden="true">{{ info.icon }}</span>
+  <span>{{ info.short }}</span>
+</span>
+{%- endmacro %}
+
+{% macro freshness(plate, info) -%}
+{% if plate.last_checked_at and info.key != 'checking' %}
+  <span class="freshness {% if info.stale %}is-stale{% endif %}">
+    Checked <time datetime="{{ plate.last_checked_at.isoformat() }}" title="{{ plate.last_checked_at|datetime }}">{{ plate.last_checked_at|timeago }}</time>{% if info.stale %} · re-check recommended{% endif %}
+  </span>
+{% elif info.key == 'checking' %}
+  <span class="freshness">In the current check</span>
+{% else %}
+  <span class="freshness">Never checked</span>
+{% endif %}
+{%- endmacro %}
+
+{% macro help_tip(text, id) -%}
+<span class="help-tip">
+  <button type="button" class="help-tip-button" aria-describedby="{{ id }}" aria-label="More info">?</button>
+  <span role="tooltip" id="{{ id }}" class="help-tip-text">{{ text }}</span>
+</span>
+{%- endmacro %}
+
+{% macro favorite_form(plate, return_url) -%}
+<form action="/plates/{{ plate.id }}/favorite" method="post" class="inline-form">
+  <input type="hidden" name="return_url" value="{{ return_url }}">
+  <button class="fav-button {% if plate.favorite %}is-on{% endif %}" type="submit" aria-pressed="{{ 'true' if plate.favorite else 'false' }}" aria-label="{{ 'Remove ' ~ plate.normalized_plate ~ ' from favorites' if plate.favorite else 'Add ' ~ plate.normalized_plate ~ ' to favorites' }}">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20.3s-7.5-4.6-7.5-10.1A4.2 4.2 0 0 1 12 7.6a4.2 4.2 0 0 1 7.5 2.6c0 5.5-7.5 10.1-7.5 10.1z"/></svg>
+  </button>
+</form>
+{%- endmacro %}
+
+{% macro empty(title, text, action_href=none, action_label=none, icon='plate') -%}
+<div class="empty-state">
+  <div class="empty-art" aria-hidden="true"><span></span></div>
+  <h3>{{ title }}</h3>
+  <p>{{ text }}</p>
+  {% if action_href %}<a class="button primary" href="{{ action_href }}">{{ action_label }}</a>{% endif %}
+</div>
+{%- endmacro %}

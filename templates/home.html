@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+{% from "partials/macros.html" import plate, status_badge, freshness, help_tip %}
+{% block title %}Florida Plate Finder · Find a plate that feels like you{% endblock %}
+{% block content %}
+<section class="hero" aria-labelledby="hero-title">
+  <div class="hero-copy">
+    <p class="kicker">Florida personalized plates</p>
+    <h1 id="hero-title">Find a Florida plate that feels like you.</h1>
+    <p class="lead">Check your favorite plate ideas, discover new combinations, and save the ones you love.</p>
+  </div>
+
+  <div class="hero-card card" data-quick-check>
+    <form action="/check" method="post" class="quick-check" novalidate data-quick-check-form>
+      <div class="hero-preview">
+        {{ plate(check_value|upper, 'lg', live=true, placeholder='SUNNY') }}
+      </div>
+      <label class="field-label" for="plate-input">Type the plate you want</label>
+      <div class="quick-check-row">
+        <input id="plate-input" class="input input-xl" name="plate" type="text" value="{{ check_value }}"
+               maxlength="{{ max_plate_length }}" autocomplete="off" autocapitalize="characters" spellcheck="false"
+               placeholder="e.g. SUNNY" aria-describedby="plate-hint plate-error plate-known" data-plate-input
+               {% if check_error %}aria-invalid="true"{% endif %}>
+        <button class="button primary button-lg" type="submit" name="action" value="check">Check availability</button>
+      </div>
+      <p class="field-hint" id="plate-hint">Up to {{ max_plate_length }} letters, numbers, spaces, or hyphens. <span data-char-count aria-live="polite"></span></p>
+      <p class="field-error" id="plate-error" role="alert" {% if not check_error %}hidden{% endif %}>{{ check_error }}</p>
+      <div class="known-result" id="plate-known" aria-live="polite" hidden></div>
+
+      <div class="quick-check-actions">
+        <a class="button secondary" href="/explore?mode=ideas" data-ideas-link>Explore plate ideas</a>
+        <button class="button text" type="submit" name="action" value="save">Save for later</button>
+      </div>
+
+      <details class="how-it-works">
+        <summary>How checking works</summary>
+        <ol>
+          <li>We open the <a href="{{ flhsmv_url }}" target="_blank" rel="noopener">official FLHSMV plate inquiry</a> in a visible browser window on this computer.</li>
+          <li>Your plate is entered there and the official answer is saved here, usually in under a minute.</li>
+          <li>If the site asks you to prove you're human, you complete it yourself in that window, then press Enter in the app's terminal window.</li>
+        </ol>
+        <p>Results reflect the moment you checked. This site can't reserve or order plates.</p>
+      </details>
+    </form>
+  </div>
+</section>
+
+<section class="paths" aria-label="Ways to get started">
+  <a class="path-card" href="#plate-input" data-focus-input>
+    <span class="path-icon path-icon-check" aria-hidden="true">✓</span>
+    <span class="path-title">Check a plate</span>
+    <span class="path-text">Already have a combination in mind? See what the official site says.</span>
+  </a>
+  <a class="path-card" href="/explore?mode=ideas">
+    <span class="path-icon path-icon-ideas" aria-hidden="true">✦</span>
+    <span class="path-title">Find plate ideas</span>
+    <span class="path-text">Turn a name, word, or phrase into dozens of plate-sized ideas.</span>
+  </a>
+  <a class="path-card" href="/explore?mode=builder">
+    <span class="path-icon path-icon-build" aria-hidden="true">#</span>
+    <span class="path-title">Build custom patterns</span>
+    <span class="path-text">Pick what goes in each spot, like SUN + two digits, and preview every combination.</span>
+  </a>
+  <a class="path-card" href="/saved">
+    <span class="path-icon path-icon-saved" aria-hidden="true">♥</span>
+    <span class="path-title">Saved plates</span>
+    <span class="path-text">{% if stats.total %}{{ stats.total }} saved · {{ stats.favorites }} favorite{{ '' if stats.favorites == 1 else 's' }}{% else %}Keep track of the plates you love and when you last checked them.{% endif %}</span>
+  </a>
+</section>
+
+{% if stats.total %}
+<section class="home-collection" aria-labelledby="collection-title">
+  <div class="section-head">
+    <div>
+      <h2 id="collection-title">{% if favorites %}Your favorites{% else %}Recently saved{% endif %}</h2>
+      <p class="muted">Status shows what the official site reported the last time you checked.</p>
+    </div>
+    <a class="button ghost small" href="/saved{% if favorites %}?show=favorites{% endif %}">See all</a>
+  </div>
+  <div class="plate-card-grid compact">
+    {% for item in (favorites or recent) %}
+      {% set info = status_info(item, item.id in checking_ids) %}
+      <a class="plate-card card link-card" href="/plates/{{ item.id }}">
+        {{ plate(item.normalized_plate, 'sm') }}
+        <div class="plate-card-meta">
+          {{ status_badge(info) }}
+          {{ freshness(item, info) }}
+        </div>
+      </a>
+    {% endfor %}
+  </div>
+</section>
+
+{% if recent_changes %}
+<section class="home-changes card" aria-labelledby="changes-title">
+  <div class="section-head">
+    <h2 id="changes-title">Recent availability changes</h2>
+    <a class="button ghost small" href="/saved?show=changed">View all</a>
+  </div>
+  <ul class="change-list">
+    {% for item in recent_changes %}
+      <li>
+        <a href="/plates/{{ item.id }}">
+          {{ plate(item.normalized_plate, 'xs') }}
+          <span>{{ item.previous_status or 'Not checked' }} <span aria-hidden="true">→</span><span class="sr-only">changed to</span> <strong>{{ item.current_status }}</strong></span>
+          <time datetime="{{ item.status_changed_at.isoformat() }}">{{ item.status_changed_at|timeago }}</time>
+        </a>
+      </li>
+    {% endfor %}
+  </ul>
+</section>
+{% endif %}
+{% endif %}
+
+<section class="trust-strip" aria-label="What to expect">
+  <div><strong>Official source</strong><span>Every check uses the FLHSMV plate inquiry in a browser you can see.</span></div>
+  <div><strong>Private by default</strong><span>Your plates, notes, and history stay in a file on this computer.</span></div>
+  <div><strong>Honest results</strong><span>Each result shows when it was checked. Verify again before you order.</span></div>
+</section>
+{% endblock %}

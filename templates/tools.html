@@ -1,0 +1,166 @@
+{% extends "base.html" %}
+{% from "partials/macros.html" import plate, help_tip %}
+{% block title %}More tools · Florida Plate Finder{% endblock %}
+{% block content %}
+<section class="page-head">
+  <div>
+    <h1>More tools</h1>
+    <p class="lead">Import lists, export your data, back up your plates, and see detailed statistics.</p>
+  </div>
+</section>
+
+<nav class="tool-links" aria-label="Tools on this page">
+  <a href="/history" class="tool-link card"><strong>Check history</strong><span>Every check session and result</span></a>
+  <a href="#import" class="tool-link card"><strong>Bulk import</strong><span>Paste or upload a list</span></a>
+  <a href="#export" class="tool-link card"><strong>Export data</strong><span>Download CSV spreadsheets</span></a>
+  <a href="#backup" class="tool-link card"><strong>Backup &amp; restore</strong><span>Keep a safe copy</span></a>
+  <a href="#stats" class="tool-link card"><strong>Statistics</strong><span>Totals and the latest run</span></a>
+</nav>
+
+{# ------------------------------------------------------------ Import #}
+<section id="import" class="tool-section" aria-labelledby="import-title">
+  <h2 id="import-title">Bulk import</h2>
+  <p class="muted">Add many plates at once. You'll review the list before anything is saved, and nothing is checked automatically.</p>
+  <div class="two-col">
+    <article class="card">
+      <h3 class="h4">Type or paste a list</h3>
+      <form action="/imports/manual/preview" method="post" class="stack">
+        <label class="field-label" for="plates_text">One plate per line</label>
+        <textarea class="input mono" id="plates_text" name="plates_text" rows="8" placeholder="SUNNY&#10;GATOR7&#10;FLA-123" required></textarea>
+        <p class="field-hint">Up to {{ max_plate_length }} letters, numbers, spaces, or hyphens each. Duplicates are removed for you.</p>
+        <div class="form-actions"><button class="button primary" type="submit">Review list</button></div>
+      </form>
+    </article>
+    <article class="card">
+      <h3 class="h4">Upload a file</h3>
+      <form action="/imports/upload/preview" method="post" enctype="multipart/form-data" class="upload-zone">
+        <label for="plate_file">
+          <strong>Choose a .txt or .csv file</strong>
+          <span>CSV files use a “plate” column automatically, or you can pick another column. Max {{ max_upload_bytes // 1024 // 1024 }} MB.</span>
+        </label>
+        <input class="input" id="plate_file" name="plate_file" type="file" accept=".txt,.csv,text/plain,text/csv" required>
+        <button class="button secondary" type="submit">Review file</button>
+      </form>
+      {% if upload_error %}<p class="field-error" role="alert">{{ upload_error }}</p>{% endif %}
+      {% if csv_columns %}
+        <form action="/imports/upload/select-column" method="post" class="stack card-inset">
+          <h4 class="h4">Which column has the plates?</h4>
+          <input type="hidden" name="csv_content" value="{{ csv_content }}">
+          <input type="hidden" name="csv_filename" value="{{ csv_filename }}">
+          <label class="field-label" for="csv_column">Column in {{ csv_filename }}</label>
+          <select class="input" id="csv_column" name="csv_column" required>
+            {% for column in csv_columns %}<option value="{{ column }}">{{ column }}</option>{% endfor %}
+          </select>
+          <div class="form-actions"><button class="button primary small" type="submit">Use this column</button></div>
+        </form>
+      {% endif %}
+    </article>
+  </div>
+
+  {% if import_report %}
+  <article class="card review-card" aria-labelledby="review-title">
+    <div class="section-head">
+      <div><h3 id="review-title">Review before saving</h3><p class="muted">From {{ import_source }}</p></div>
+      <div class="result-facts">
+        <span class="fact fact-good">{{ import_report.valid|length }} ready</span>
+        <span class="fact">{{ import_report.duplicates|length }} duplicates removed</span>
+        <span class="fact fact-warn">{{ import_report.failures|length }} need fixing</span>
+      </div>
+    </div>
+    {% if import_report.valid %}
+    <form action="/imports/confirm" method="post" data-selection-form>
+      <div class="select-bar">
+        <label class="check-row"><input type="checkbox" data-select-all checked><span>Select all</span></label>
+        <span data-selection-count class="muted"></span>
+        <button class="button primary" type="submit">Save selected plates</button>
+      </div>
+      <div class="candidate-grid">
+        {% for value in import_report.valid %}
+          <label class="candidate-chip"><input type="checkbox" name="plates" value="{{ value }}" checked> <span>{{ value }}</span></label>
+        {% endfor %}
+      </div>
+    </form>
+    {% endif %}
+    {% if import_report.duplicates %}
+      <details class="advanced"><summary>{{ import_report.duplicates|length }} duplicate entries removed</summary><p class="mono-list">{{ import_report.duplicates|join(', ') }}</p></details>
+    {% endif %}
+    {% if import_report.failures %}
+      <div class="validation-list" role="alert"><h4 class="h4">These can't be saved as written</h4>
+        <ul>{% for failure in import_report.failures %}<li><strong class="mono-soft">{{ failure.normalized or '(blank)' }}</strong>: {{ failure.reason }}{% if failure.line_number %} <span class="muted">(line {{ failure.line_number }})</span>{% endif %}</li>{% endfor %}</ul>
+      </div>
+    {% endif %}
+  </article>
+  {% endif %}
+</section>
+
+{# ------------------------------------------------------------ Export #}
+<section id="export" class="tool-section" aria-labelledby="export-title">
+  <h2 id="export-title">Export data</h2>
+  <p class="muted">Download spreadsheets (CSV) that open in Excel, Numbers, or Google Sheets.</p>
+  <div class="export-grid">
+    <a class="export-link card" href="/exports/plates.csv?scope=all" download><strong>All saved plates</strong><span>{{ stats.total }} plates with status, dates, favorites, and notes</span></a>
+    <a class="export-link card" href="/exports/plates.csv?scope=available" download><strong>Available when last checked</strong><span>{{ stats.available }} plates</span></a>
+    <a class="export-link card" href="/exports/plates.csv?scope=favorites" download><strong>Favorites</strong><span>{{ stats.favorites }} plates</span></a>
+    <a class="export-link card" href="/exports/plates.csv?scope=changed" download><strong>Plates whose status changed</strong><span>{{ stats.changed }} plates</span></a>
+    <a class="export-link card" href="/exports/history.csv" download><strong>Full check history</strong><span>{{ stats.history }} individual results</span></a>
+  </div>
+  <p class="field-hint">Tip: on Saved plates, filter your list first and use <strong>Export this list</strong> to download exactly what you see.</p>
+</section>
+
+{# ------------------------------------------------------------ Backup #}
+<section id="backup" class="tool-section" aria-labelledby="backup-title">
+  <h2 id="backup-title">Backup &amp; restore</h2>
+  <div class="two-col">
+    <article class="card">
+      <h3 class="h4">Download a backup</h3>
+      <p class="muted">One file with every saved plate, favorite, note, check result, and check session.</p>
+      <a class="button primary" href="/backup.json" download>Download backup</a>
+    </article>
+    <article class="card">
+      <h3 class="h4">Restore from a backup</h3>
+      <p class="muted">Restoring <strong>adds</strong> what's missing and keeps the newest results. Nothing already here is deleted.</p>
+      <form action="/backup/restore" method="post" enctype="multipart/form-data" class="stack" data-confirm="Merge this backup into your saved plates? Existing plates and history are kept; newer results from the backup are added." data-confirm-title="Restore backup?" data-confirm-action="Restore">
+        <label class="field-label" for="backup_file">Backup file (.json)</label>
+        <input class="input" id="backup_file" name="backup_file" type="file" accept=".json,application/json" required>
+        <div class="form-actions"><button class="button secondary" type="submit">Restore</button></div>
+      </form>
+    </article>
+  </div>
+</section>
+
+{# ------------------------------------------------------------ Stats #}
+<section id="stats" class="tool-section" aria-labelledby="stats-title">
+  <h2 id="stats-title">Statistics</h2>
+  <dl class="stat-grid">
+    <div class="stat card"><dt>Saved plates</dt><dd>{{ stats.total }}</dd></div>
+    <div class="stat card"><dt>Available when last checked</dt><dd class="text-available">{{ stats.available }}</dd></div>
+    <div class="stat card"><dt>Unavailable when last checked</dt><dd class="text-unavailable">{{ stats.unavailable }}</dd></div>
+    <div class="stat card"><dt>Need verification</dt><dd>{{ stats.invalid + stats.unknown + stats.error }}</dd><small>{{ stats.invalid }} invalid · {{ stats.unknown }} unknown · {{ stats.error }} errors</small></div>
+    <div class="stat card"><dt>Never checked</dt><dd>{{ stats.unchecked }}</dd></div>
+    <div class="stat card"><dt>Favorites</dt><dd>{{ stats.favorites }}</dd></div>
+    <div class="stat card"><dt>Checked today</dt><dd>{{ stats.today }}</dd><small>unique plates</small></div>
+    <div class="stat card"><dt>Check sessions</dt><dd>{{ stats.runs }}</dd><small>{{ stats.history }} results recorded</small></div>
+  </dl>
+
+  {% if latest_run %}
+    {% set ri = run_info(latest_run) %}
+    <article class="card latest-run">
+      <div class="section-head">
+        <div><h3 class="h4">Latest check session</h3><p class="muted">Run #{{ latest_run.id }} · started {{ latest_run.started_at|datetime }}</p></div>
+        <span class="run-pill run-pill-{{ ri.tone }}">{{ ri.label }}</span>
+      </div>
+      <div class="progress-track small" role="progressbar" aria-label="Progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ ri.percent }}"><span style="width: {{ ri.percent }}%"></span></div>
+      <dl class="tech-list">
+        <div><dt>Checked</dt><dd>{{ latest_run.checked_count }} of {{ latest_run.total_candidates }}</dd></div>
+        <div><dt>Available</dt><dd>{{ latest_run.available_count }}</dd></div>
+        <div><dt>Unavailable</dt><dd>{{ latest_run.unavailable_count }}</dd></div>
+        <div><dt>Duration</dt><dd>{{ ri.duration }}</dd></div>
+        <div><dt>Speed</dt><dd>{{ ri.per_minute }} plates/min</dd></div>
+        <div><dt>Batch</dt><dd>{{ latest_run.current_batch }}</dd></div>
+      </dl>
+      {% if latest_run.error_message %}<p class="run-error">{{ latest_run.error_message }}</p>{% endif %}
+      <a class="button text small" href="/history?run_id={{ latest_run.id }}">See this session's results</a>
+    </article>
+  {% endif %}
+</section>
+{% endblock %}

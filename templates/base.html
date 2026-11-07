@@ -1,65 +1,126 @@
+{%- set path = request.url.path -%}
+{%- macro nav_icon(name) -%}
+  {%- if name == 'home' -%}<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11.5 12 4l9 7.5M5.5 9.8V20h13V9.8"/></svg>
+  {%- elif name == 'explore' -%}<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/></svg>
+  {%- elif name == 'saved' -%}<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 3.5h11v17L12 16.5l-5.5 4z"/></svg>
+  {%- else -%}<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>
+  {%- endif -%}
+{%- endmacro -%}
 <!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light">
-  <title>{% block title %}Florida Plate Research{% endblock %}</title>
+  <meta name="theme-color" content="#F8F5EE">
+  <title>{% block title %}Florida Plate Finder{% endblock %}</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='2' y='7' width='28' height='18' rx='4' fill='%23fff' stroke='%231E6B57' stroke-width='2.5'/%3E%3Ccircle cx='16' cy='16' r='4' fill='%23F28C28'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="{{ url_for('static', path='styles.css') }}">
   <script defer src="{{ url_for('static', path='app.js') }}"></script>
 </head>
 <body>
+  <a class="skip-link" href="#main">Skip to content</a>
   <header class="site-header">
-    <a class="brand" href="/" aria-label="Florida Plate Research home">
-      <span class="brand-mark">FL</span>
-      <span><strong>Plate Research</strong><small>Local FLHSMV workspace</small></span>
-    </a>
-    <nav aria-label="Primary navigation">
-      <a href="/" class="{% if request.url.path == '/' %}active{% endif %}">Dashboard</a>
-      <a href="/results" class="{% if request.url.path == '/results' %}active{% endif %}">Results</a>
-      <a href="/generator" class="{% if request.url.path == '/generator' %}active{% endif %}">Generator</a>
-      <a href="/history" class="{% if request.url.path == '/history' %}active{% endif %}">History</a>
-    </nav>
+    <div class="header-inner">
+      <a class="brand" href="/" aria-label="Florida Plate Finder home">
+        <span class="brand-mark" aria-hidden="true"><span></span></span>
+        <span class="brand-name">Florida Plate Finder</span>
+      </a>
+      <nav class="primary-nav" aria-label="Main">
+        <a href="/" {% if path == '/' %}aria-current="page"{% endif %}>Home</a>
+        <a href="/explore" {% if path in ['/explore', '/generator', '/explore/preview', '/generator/preview'] %}aria-current="page"{% endif %}>Explore Plates</a>
+        <a href="/saved" {% if path in ['/saved', '/results'] or path.startswith('/plates/') %}aria-current="page"{% endif %}>Saved Plates</a>
+      </nav>
+      <details class="more-menu" data-menu>
+        <summary class="{% if path in ['/history', '/activity', '/tools'] or path.startswith('/imports') %}is-current{% endif %}">More <span aria-hidden="true">▾</span></summary>
+        <div class="menu-panel" role="menu">
+          <a role="menuitem" href="/history">Check history</a>
+          <a role="menuitem" href="/tools#import">Bulk import</a>
+          <a role="menuitem" href="/tools#export">Export data</a>
+          <a role="menuitem" href="/tools#backup">Backup &amp; restore</a>
+          <a role="menuitem" href="/tools">Advanced tools &amp; stats</a>
+        </div>
+      </details>
+    </div>
   </header>
 
-  <div class="responsible-strip">
-    <strong>Responsible use:</strong> visible browser · one batch at a time · no CAPTCHA solving · no hidden monitoring
-  </div>
-
-  <section id="live-run" class="live-run" hidden aria-live="polite">
-    <div class="live-run-head">
-      <div>
-        <span class="eyebrow">Current checking run</span>
-        <strong id="run-title">Preparing Chromium…</strong>
+  <section id="live-run" class="live-run" hidden aria-live="polite" aria-label="Checking progress">
+    <div class="live-run-inner">
+      <div class="live-run-head">
+        <span class="spinner" aria-hidden="true"></span>
+        <div class="live-run-text">
+          <strong id="run-title">Getting the official site ready…</strong>
+          <span id="run-message" class="run-message"></span>
+        </div>
+        <form action="/runs/stop" method="post">
+          <input type="hidden" name="return_url" value="{{ path }}">
+          <button class="button secondary small" type="submit">Stop safely</button>
+        </form>
       </div>
-      <form action="/runs/stop" method="post">
-        <button class="button danger small" type="submit">Stop safely</button>
-      </form>
+      <div class="progress-track" role="progressbar" aria-label="Checking progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="run-progress"><span id="run-progress-bar"></span></div>
+      <div class="run-metrics">
+        <span><b id="run-checked">0</b> of <b id="run-total">0</b> checked</span>
+        <span class="metric-available">✓ <b id="run-available">0</b> available</span>
+        <span class="metric-unavailable">✕ <b id="run-unavailable">0</b> unavailable</span>
+        <span>! <b id="run-review">0</b> need verification</span>
+        <details class="run-tech">
+          <summary>Details</summary>
+          <span>Batch <b id="run-batch">0</b></span>
+          <span><b id="run-invalid">0</b> invalid</span>
+          <span><b id="run-unknown">0</b> unknown</span>
+          <span><b id="run-errors">0</b> errors</span>
+          <span>Last plate: <b id="run-last">—</b></span>
+        </details>
+      </div>
     </div>
-    <div class="progress-track"><span id="run-progress-bar"></span></div>
-    <div class="run-metrics">
-      <span><b id="run-checked">0</b> checked</span>
-      <span><b id="run-total">0</b> total</span>
-      <span>Batch <b id="run-batch">0</b></span>
-      <span class="metric-available"><b id="run-available">0</b> available</span>
-      <span class="metric-unavailable"><b id="run-unavailable">0</b> unavailable</span>
-      <span><b id="run-invalid">0</b> invalid</span>
-      <span><b id="run-unknown">0</b> unknown</span>
-      <span><b id="run-errors">0</b> errors</span>
-      <span>Last: <b id="run-last">—</b></span>
-    </div>
-    <p id="run-message" class="run-message"></p>
   </section>
 
-  <main>
+  <main id="main" tabindex="-1">
     {% if message %}
-      <div class="flash {{ message_kind }}" role="status">{{ message }}</div>
+      <div class="flash {{ message_kind }}" role="{{ 'alert' if message_kind == 'error' else 'status' }}">
+        <span class="flash-icon" aria-hidden="true">{% if message_kind == 'error' %}!{% elif message_kind == 'warning' %}i{% else %}✓{% endif %}</span>
+        <p>{{ message }}</p>
+        <button type="button" class="flash-close" data-dismiss aria-label="Dismiss message">×</button>
+      </div>
     {% endif %}
     {% block content %}{% endblock %}
   </main>
 
-  <footer>
-    <p>Uses the official FLHSMV personalized plate checker through visible Chromium. Availability can change before an in-person reservation.</p>
+  <footer class="site-footer">
+    <div class="footer-inner">
+      <div>
+        <p class="footer-brand">Florida Plate Finder</p>
+        <p>A private research tool that runs on your computer. It checks plates by opening the <a href="{{ flhsmv_url }}" target="_blank" rel="noopener">official FLHSMV plate inquiry</a> in a visible browser, a few plates at a time.</p>
+      </div>
+      <div>
+        <p class="footer-heading">Good to know</p>
+        <p>Results show what the official site reported when you checked. Availability can change at any time, and this site can't reserve or order plates. To order, use Florida's official channels, such as your county tax collector's office.</p>
+      </div>
+      <div>
+        <p class="footer-heading">Responsible checking</p>
+        <p>Visible browser · one small batch at a time · pauses between batches · you complete any human verification yourself · no hidden or scheduled checking.</p>
+      </div>
+    </div>
   </footer>
+
+  <nav class="tab-bar" aria-label="Main (mobile)">
+    <a href="/" {% if path == '/' %}aria-current="page"{% endif %}>{{ nav_icon('home') }}<span>Home</span></a>
+    <a href="/explore" {% if path in ['/explore', '/generator', '/explore/preview', '/generator/preview'] %}aria-current="page"{% endif %}>{{ nav_icon('explore') }}<span>Explore</span></a>
+    <a href="/saved" {% if path in ['/saved', '/results'] or path.startswith('/plates/') %}aria-current="page"{% endif %}>{{ nav_icon('saved') }}<span>Saved</span></a>
+    <a href="/tools" {% if path in ['/history', '/activity', '/tools'] %}aria-current="page"{% endif %}>{{ nav_icon('more') }}<span>More</span></a>
+  </nav>
+
+  <div class="toast-region" aria-live="polite" aria-atomic="false" id="toasts"></div>
+
+  <dialog class="modal" id="confirm-dialog" aria-labelledby="confirm-title">
+    <form method="dialog">
+      <h2 id="confirm-title">Are you sure?</h2>
+      <div id="confirm-body" class="modal-body"></div>
+      <div class="modal-actions">
+        <button class="button ghost" value="cancel" type="submit">Cancel</button>
+        <button class="button primary" value="confirm" type="submit" id="confirm-ok">Continue</button>
+      </div>
+    </form>
+  </dialog>
 </body>
 </html>
