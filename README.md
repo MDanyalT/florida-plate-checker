@@ -137,7 +137,13 @@ For example, `{WORD}{NN}` with `SUN` produces `SUN00` through `SUN99`, subject t
 2. Select plates with the checkboxes.
 3. Choose **Check availability** and confirm.
 
-Only one run can be active, and a run is capped at 500 plates (runs above 100 need an extra confirmation). The application opens visible Chromium, submits at most five configurations per FLHSMV form, and waits a random five to ten seconds between batches. A progress banner appears at the top of every page.
+Only one run can be active, and a run is capped at 1,000 plates (runs above 100 need an extra confirmation). The application opens visible Chromium, submits at most five configurations per FLHSMV form, and pauses between batches according to the checking speed. A progress banner appears at the top of every page.
+
+## Checking speed
+
+Open **More → Checking speed** (`/tools#speed`) and choose **Careful** (5–10 seconds between batches, the default), **Balanced** (3–6 seconds), or **Faster** (2–4 seconds). The choice is saved in `user_data/preferences.json` and applies from the next check.
+
+Every speed keeps the same safeguards: one visible browser, at most five plates per form, results checked for access-denied, rate-limit, and maintenance pages after every submission (which stop the run), and CAPTCHA or human verification left for you to complete. If a verification appears or a batch has to be retried, the rest of that run automatically slows to the Careful pace.
 
 Choose **Stop safely** to request a stop. The current browser step finishes, Chromium closes, and every completed result stays saved.
 
@@ -212,9 +218,9 @@ Checking-speed profiles retain one visible Chromium page, use the official form'
 | `balanced` | 3–6 seconds | 30 seconds | 2 seconds | 3 |
 | `faster` | 2–4 seconds | 25 seconds | 1.5 seconds | 2 |
 
-Set `CHECK_SPEED_PROFILE=balanced` or `CHECK_SPEED_PROFILE=faster` in `.env`. For individual control, set `CHECK_DELAY_MIN_SECONDS`, `CHECK_DELAY_MAX_SECONDS`, `RESULT_TIMEOUT_SECONDS`, `RETRY_DELAY_SECONDS`, or `MAX_RETRIES`. Older `MIN_DELAY_SECONDS`, `MAX_DELAY_SECONDS`, and `MAX_CANDIDATES_PER_RUN` values remain recognized for compatibility; remove them from an older `.env` when switching to profile-based timing.
+Set `CHECK_SPEED_PROFILE=balanced` or `CHECK_SPEED_PROFILE=faster` in `.env` to change the default. A speed chosen on the Tools page takes priority over these `.env` timing values. For individual control, set `CHECK_DELAY_MIN_SECONDS`, `CHECK_DELAY_MAX_SECONDS`, `RESULT_TIMEOUT_SECONDS`, `RETRY_DELAY_SECONDS`, or `MAX_RETRIES`. Older `MIN_DELAY_SECONDS`, `MAX_DELAY_SECONDS`, and `MAX_CANDIDATES_PER_RUN` values remain recognized for compatibility. Whatever `.env` says, runs never go below a 2-second pause between batches, a 15-second result timeout, one retry, or more than five plates per form.
 
-The checker reuses one browser page for the complete run, clears every official form field between batches, waits for submitted plate/result rows instead of network-idle, retries transient failures, and commits results once per batch. Run history records elapsed time, completed batches, average active seconds per plate, retries, errors, and manual CAPTCHA pause time separately.
+The checker loads the official page once and reuses it between batches, reloading only for a retry or when the form is no longer usable. Each batch fills every official form field in one pass (clearing any left over from the previous batch), reads the page once after submitting to check for blocks and verification, waits for submitted plate/result rows instead of network-idle, retries transient failures, and commits results once per batch. Run history records elapsed time, completed batches, average active seconds per plate, retries, errors, and manual CAPTCHA pause time separately.
 
 ## Original command-line checker
 

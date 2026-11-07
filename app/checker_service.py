@@ -10,6 +10,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import urlparse
 
 from playwright.sync_api import (
     Browser,
@@ -20,7 +21,7 @@ from playwright.sync_api import (
     sync_playwright,
 )
 
-from app.settings import Settings, settings
+from app.settings import SPEED_PROFILES, Settings, settings
 
 
 MetricCallback = Callable[[str, float], None]
@@ -95,6 +96,18 @@ class CheckerService:
 
     def __init__(self, config: Settings = settings) -> None:
         self.config = config
+        # Set after a retry or human-verification pause: the rest of the run
+        # falls back to the careful pace no matter which speed was chosen.
+        self.cautious = False
+        self.page_loads = 0
+
+    def _batch_delay_range(self) -> tuple[float, float]:
+        low, high = self.config.min_delay_seconds, self.config.max_delay_seconds
+        if self.cautious:
+            careful = SPEED_PROFILES["conservative"]
+            low = max(low, float(careful["delay_min"]))
+            high = max(high, float(careful["delay_max"]))
+        return low, high
 
     def run(
         self,
@@ -112,6 +125,17 @@ class CheckerService:
         if on_result is None and on_batch_results is None:
             raise ValueError("A result callback is required.")
         should_stop = should_stop or (lambda: False)
+        self.cautious = False
+        self.page_loads = 0
+        user_metric = on_metric
+
+        def metric(name: str, value: float) -> None:
+            if name in {"retry", "captcha_pause"}:
+                self.cautious = True
+            if user_metric:
+                user_metric(name, value)
+
+        on_metric = metric
         with sync_playwright() as playwright:
             browser: Browser | None = None
             try:
@@ -153,9 +177,7 @@ class CheckerService:
                     if on_metric:
                         on_metric("batch_completed", 1.0)
                     if batch_number < total_batches:
-                        delay = random.uniform(
-                            self.config.min_delay_seconds, self.config.max_delay_seconds
-                        )
+                        delay = random.uniform(*self._batch_delay_range())
                         deadline = time.monotonic() + delay
                         while time.monotonic() < deadline:
                             if should_stop():
@@ -201,19 +223,32 @@ class CheckerService:
         except PlaywrightTimeoutError:
             return ""
 
-    def _detect_safety_page(self, page: Page) -> None:
-        text = self._page_text(page)
+    def _detect_safety_page(self, page: Page, text: str | None = None) -> None:
+        text = self._page_text(page) if text is None else text
         for term in BLOCKING_TERMS:
             if term in text:
                 raise SafetyStop(f"FLHSMV displayed '{term}'. The run was stopped safely.")
+
+    def _inspect_page(
+        self,
+        page: Page,
+        on_state: Callable[[str], None] | None,
+        on_metric: MetricCallback | None,
+    ) -> None:
+        """Block/CAPTCHA checks from a single read of the page text."""
+
+        text = self._page_text(page)
+        self._detect_safety_page(page, text)
+        self._handle_captcha(page, on_state, on_metric, text)
 
     def _handle_captcha(
         self,
         page: Page,
         on_state: Callable[[str], None] | None,
         on_metric: MetricCallback | None = None,
+        text: str | None = None,
     ) -> None:
-        text = self._page_text(page)
+        text = self._page_text(page) if text is None else text
         if any(term in text for term in CAPTCHA_TERMS):
             if on_state:
                 on_state("captcha")
@@ -286,6 +321,7 @@ class CheckerService:
         last_error: Exception | None = None
         for attempt in range(1, self.config.max_retries + 1):
             try:
+                self.page_loads += 1
                 page.goto(
                     self.config.flhsmv_url,
                     wait_until="domcontentloaded",
@@ -294,8 +330,7 @@ class CheckerService:
                 page.locator("#inquiry").wait_for(
                     state="visible", timeout=self.config.navigation_timeout_ms
                 )
-                self._handle_captcha(page, on_state, on_metric)
-                self._detect_safety_page(page)
+                self._inspect_page(page, on_state, on_metric)
                 return self._find_fields(page)
             except SafetyStop:
                 raise
@@ -321,25 +356,22 @@ class CheckerService:
         *,
         force_reload: bool,
     ) -> list[CheckResult]:
-        if force_reload:
+        # The page left by the previous submit (already checked for blocks and
+        # CAPTCHA right after it loaded) is reused as-is. It is only reloaded on
+        # a retry or when the form is no longer usable.
+        fields = None if force_reload else self._reusable_fields(page, len(batch))
+        if fields is None:
             fields = self._open_checker_with_retries(page, on_state, on_metric)
-        else:
-            try:
-                self._detect_safety_page(page)
-                self._handle_captcha(page, on_state, on_metric)
-                fields = self._find_fields(page)
-                self._find_submit(page)
-            except PageStructureError:
-                fields = self._open_checker_with_retries(page, on_state, on_metric)
         usable_count = min(len(fields), self.config.max_batch_size, 5)
         if len(batch) > usable_count:
             raise PageStructureError(
                 f"The live page now has {usable_count} fields for a {len(batch)}-plate batch."
             )
-        for field in fields[:usable_count]:
-            field.fill("", timeout=self.config.navigation_timeout_ms)
-        for field, plate in zip(fields[: len(batch)], batch, strict=True):
-            field.fill(plate, timeout=self.config.navigation_timeout_ms)
+        # One pass: each field gets its new plate, and leftovers are cleared so
+        # a previous batch's plate is never resubmitted.
+        for index, field in enumerate(fields[:usable_count]):
+            value = batch[index] if index < len(batch) else ""
+            field.fill(value, timeout=self.config.navigation_timeout_ms)
         submit = self._find_submit(page)
         try:
             with page.expect_navigation(
@@ -349,10 +381,26 @@ class CheckerService:
         except PlaywrightTimeoutError as exc:
             raise TransientCheckError("Submission navigation timed out.") from exc
 
-        self._handle_captcha(page, on_state, on_metric)
-        self._detect_safety_page(page)
+        self._inspect_page(page, on_state, on_metric)
         self._wait_for_results(page, batch)
         return self._extract_results(page, batch, batch_number)
+
+    def _reusable_fields(self, page: Page, needed: int) -> list[Locator] | None:
+        """The open page's plate fields, or None if the page must be reloaded."""
+
+        try:
+            checker_path = urlparse(self.config.flhsmv_url).path.lower()
+            if checker_path and checker_path not in page.url.lower():
+                return None
+            fields = page.locator(FIELD_SELECTOR).all() or page.locator(FIELD_FALLBACK_SELECTOR).all()
+            submit_count = page.locator(SUBMIT_SELECTOR).count() or page.locator(
+                SUBMIT_FALLBACK_SELECTOR
+            ).count()
+        except PlaywrightError:
+            return None
+        if len(fields) < needed or submit_count != 1:
+            return None
+        return fields
 
     def _wait_for_results(self, page: Page, submitted: Sequence[str]) -> None:
         try:

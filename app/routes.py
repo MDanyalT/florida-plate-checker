@@ -29,6 +29,7 @@ from app.plate_utils import analyze_candidates, normalize_plate, validate_plate
 from app.run_manager import ACTIVE_STATUSES, RunManager
 from app.schemas import RunProgress
 from app.settings import PROJECT_ROOT, settings
+from app.speed import SPEED_CHOICES, current_speed_profile, save_speed_profile, settings_for_run
 
 
 router = APIRouter()
@@ -43,7 +44,7 @@ if settings.development_mode:
         logger.addHandler(development_handler)
     logger.propagate = False
 templates = Jinja2Templates(directory=str(PROJECT_ROOT / "templates"))
-run_manager = RunManager(SessionLocal, lambda: CheckerService(settings))
+run_manager = RunManager(SessionLocal, lambda: CheckerService(settings_for_run(settings)))
 
 STALE_AFTER = timedelta(days=7)
 REVIEW_STATUSES = ("Invalid", "Unknown", "Error")
@@ -338,6 +339,8 @@ def _tools_context(session: Session) -> dict[str, Any]:
         "stats": stats,
         "latest_run": session.scalar(select(CheckingRun).order_by(CheckingRun.id.desc()).limit(1)),
         "max_upload_bytes": settings.max_upload_bytes,
+        "speed_choices": SPEED_CHOICES,
+        "current_speed": current_speed_profile(settings),
     }
 
 
@@ -355,6 +358,19 @@ def tools(request: Request, session: Session = Depends(get_db)) -> HTMLResponse:
 @router.get("/dashboard")
 def legacy_dashboard() -> RedirectResponse:
     return RedirectResponse("/tools", status_code=307)
+
+
+@router.post("/settings/speed")
+async def update_speed(request: Request) -> RedirectResponse:
+    form = await request.form()
+    choice = str(form.get("check_speed", ""))
+    if choice not in SPEED_CHOICES:
+        return _redirect("/tools#speed", "Choose one of the listed speeds.", "error")
+    save_speed_profile(settings, choice)
+    note = " It applies from the next check." if run_manager.active_plate_ids else ""
+    return _redirect(
+        "/tools#speed", f"Checking speed set to {SPEED_CHOICES[choice]['label']}.{note}"
+    )
 
 
 @router.post("/backups/create")

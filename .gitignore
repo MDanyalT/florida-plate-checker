@@ -91,3 +91,6 @@ __pycache__/
 ._*
 Thumbs.db
 Desktop.ini
+
+# Local in-app preferences (checking speed)
+preferences.json

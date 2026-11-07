@@ -206,6 +206,7 @@ def test_public_ui_contains_no_personal_placeholder_names() -> None:
     forbidden = ("DAN" + "YAL", "TA" + "RIQ", "R" + "HM", "T" + "AM")
     public_text = "\n".join(path.read_text() for path in public_files).upper()
     assert all(re.search(rf"\b{name}\b", public_text) is None for name in forbidden)
+    assert "TAR1Q" not in public_text
 
 
 def test_launchers_are_project_scoped_and_release_archives_are_clean(tmp_path: Path) -> None:

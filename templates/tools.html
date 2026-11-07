@@ -14,6 +14,7 @@
   <a href="#import" class="tool-link card"><strong>Bulk import</strong><span>Paste or upload a list</span></a>
   <a href="#export" class="tool-link card"><strong>Export data</strong><span>Download CSV spreadsheets</span></a>
   <a href="#backup" class="tool-link card"><strong>Backup &amp; restore</strong><span>Keep a safe copy</span></a>
+  <a href="#speed" class="tool-link card"><strong>Checking speed</strong><span>{{ speed_choices[current_speed].label }} right now</span></a>
   <a href="#stats" class="tool-link card"><strong>Statistics</strong><span>Totals and the latest run</span></a>
 </nav>
 
@@ -130,6 +131,29 @@
       </form>
     </article>
   </div>
+</section>
+
+{# ------------------------------------------------------------ Speed #}
+<section id="speed" class="tool-section" aria-labelledby="speed-title">
+  <h2 id="speed-title">Checking speed</h2>
+  <p class="muted">Choose how long the app pauses between batches of up to five plates. Plates are always checked one batch at a time in one visible browser window, using the same official page throughout.</p>
+  <form action="/settings/speed" method="post" class="stack">
+    <fieldset class="pattern-grid speed-grid">
+      <legend class="sr-only">Checking speed</legend>
+      {% for value, choice in speed_choices.items() %}
+        <label class="pattern-card">
+          <input type="radio" name="check_speed" value="{{ value }}" {% if value == current_speed %}checked{% endif %}>
+          <span class="pattern-card-body">
+            <span class="pattern-card-title">{{ choice.label }}</span>
+            <span class="pattern-card-text">{{ choice.summary }}</span>
+          </span>
+          <span class="pattern-check" aria-hidden="true">✓</span>
+        </label>
+      {% endfor %}
+    </fieldset>
+    <p class="field-hint">Safety stays on at every speed. If the official site asks you to verify you're human, or a batch needs a retry, the rest of that check slows to the Careful pace. Access-denied or rate-limit pages still stop the check right away, and you always solve verifications yourself.</p>
+    <div><button class="button primary" type="submit">Save speed</button></div>
+  </form>
 </section>
 
 {# ------------------------------------------------------------ Stats #}
