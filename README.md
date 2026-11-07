@@ -1,5 +1,35 @@
 # Florida Plate Finder
 
+## Quick start
+
+Florida Plate Research runs only on your own computer; it is not an online service. Your plate ideas, results, notes, favorites, and history stay local unless you choose to copy or share them. Internet access is needed during setup and whenever you check the official FLHSMV website.
+
+### macOS
+
+1. Download **Florida-Plate-Research-macOS.zip** from GitHub Releases.
+2. Extract the ZIP.
+3. Double-click **Setup Plate Research.command**.
+4. If macOS blocks it, right-click the setup file, choose **Open**, then confirm **Open**. Do not disable Gatekeeper.
+5. After setup, double-click **Open Plate Research.command**.
+6. The dashboard opens automatically in your default browser.
+7. Keep the Terminal window open while using the app. Closing it or pressing Control+C stops the local app.
+
+### Windows
+
+1. Download **Florida-Plate-Research-Windows.zip** from GitHub Releases.
+2. Extract the ZIP.
+3. Double-click **Setup Plate Research.bat**.
+4. Approve a normal Windows security prompt only when the ZIP came from the official repository.
+5. After setup, double-click **Open Plate Research.bat**.
+6. The dashboard opens automatically in your default browser.
+7. Keep the command window open while using the app. Closing it or pressing Control+C stops the local app.
+
+The first setup may take several minutes because it creates a private Python environment and installs Chromium. Python 3.11 or newer must already be installed from [python.org](https://www.python.org/downloads/). During a plate check, visible Chromium may open. If FLHSMV shows a CAPTCHA, complete it yourself; the app never bypasses human verification.
+
+Use **Stop Plate Research** only when you need to stop a copy whose launcher window is unavailable. It validates the saved process first and never broadly stops other Python programs.
+
+## About the application
+
 Florida Plate Finder is a private, local web app for discovering, saving, and checking Florida personalized license plates. It stores your plates, their last known availability, full check history, favorites, and notes in a local SQLite database.
 
 Availability checks use a **visible Playwright Chromium browser** and the official [FLHSMV Personalized Plate Inquiry](https://services.flhsmv.gov/MVCheckPersonalPlate/PlateInquiryView.aspx). The application does not replay ASP.NET requests directly and does not bypass CAPTCHA, rate limits, blocks, or other access controls. It cannot reserve or order plates.
@@ -19,7 +49,7 @@ Availability checks use a **visible Playwright Chromium browser** and the offici
 
 ## Responsible-use safeguards
 
-The first version intentionally has no parallel checking, direct HTTP form replay, CAPTCHA solving, proxy or IP rotation, automatic reservation, continuous polling, scheduled monitoring, or hidden checking. Every run requires a user action. The default run limit is 500 candidates, and runs above 100 require an extra confirmation.
+The first version intentionally has no parallel checking, direct HTTP form replay, CAPTCHA solving, proxy or IP rotation, automatic reservation, continuous polling, scheduled monitoring, or hidden checking. Every run requires a user action. The default run limit is 1,000 candidates, and runs above 100 require an extra confirmation.
 
 ## Required software
 
@@ -27,7 +57,7 @@ The first version intentionally has no parallel checking, direct HTTP form repla
 - A normal desktop session capable of showing Chromium
 - Internet access while checking plates or installing Chromium
 
-## macOS installation
+## Developer installation on macOS
 
 Open Terminal in this project folder and run:
 
@@ -41,7 +71,7 @@ python -m playwright install chromium
 
 If `python3.11` is unavailable but `python3 --version` reports 3.11 or newer, use `python3 -m venv .venv` for the first command.
 
-## Windows installation
+## Developer installation on Windows
 
 Install Python 3.11 or newer from [python.org](https://www.python.org/downloads/) and select **Add Python to PATH**. Open PowerShell in the project folder and run:
 
@@ -99,7 +129,7 @@ Custom templates (Ready-made patterns → Custom template) support:
 - `{NN}`: two digits
 - `{WORD}`: the supplied word
 
-For example, `{WORD}{NN}` with `TAM` produces `TAM00` through `TAM99`, subject to the seven-character limit.
+For example, `{WORD}{NN}` with `SUN` produces `SUN00` through `SUN99`, subject to the seven-character limit.
 
 ## Start, watch, and stop a checking run
 
@@ -134,26 +164,57 @@ The old URLs (`/results`, `/generator`) still work.
 The application stores its database at:
 
 ```text
-data/plates.db
+user_data/plates.db
 ```
 
-Your plate lists, notes, history, generated CSV files, and debug captures stay on this computer unless you move or share them. Git ignores the database, `plates.txt`, CLI result files, `.env`, and debug artifacts.
+It also keeps backups, exports, and debugging captures under `user_data/`. Git and the release builder exclude that entire folder. If an older `data/plates.db` exists and the new database does not, the app uses SQLite's backup mechanism to copy it safely into `user_data/plates.db`; the original is retained as a fallback. A custom `DATABASE_PATH` remains supported.
 
-To back up your research, stop the application and copy `data/plates.db`. To reset the dashboard, stop the application and move that file somewhere safe; a new empty database is created on the next launch.
+Choose **Back up my data** on the Dashboard to create a timestamped SQLite copy in `user_data/backups/` and download the same copy through your browser. To reset the dashboard, stop the application and move `user_data/plates.db` somewhere safe; a new empty database is created on the next launch.
+
+## Safe updates for ZIP installations
+
+Double-click **Update Plate Research** for your operating system. It creates a database backup when setup is available, then shows the safe manual update steps. Download the newest release into a new folder, copy your existing `user_data/` folder into it, and run the new setup launcher. Never replace or delete `user_data/` during an update.
+
+The updater intentionally does not assume Git is installed and does not download or overwrite application files automatically.
+
+## Build the release ZIP files
+
+From a developer environment, run:
+
+```bash
+python scripts/build_releases.py
+```
+
+The script creates `dist/Florida-Plate-Research-macOS.zip` and `dist/Florida-Plate-Research-Windows.zip`. The archives contain shared application files plus only the correct operating-system launchers. They exclude `.git`, `.venv`, `.env`, tests, databases, personal inputs, results, caches, exports, backups, and debug files. Python and Chromium binaries are not bundled.
 
 ## Optional configuration
 
 Copy `.env.example` to `.env` and edit only the values you need. Safe defaults include:
 
 ```text
+DATA_DIRECTORY=user_data
+DATABASE_PATH=user_data/plates.db
 HEADLESS=false
-MIN_DELAY_SECONDS=5
-MAX_DELAY_SECONDS=10
+CHECK_SPEED_PROFILE=conservative
 MAX_BATCH_SIZE=5
-MAX_CANDIDATES_PER_RUN=500
+MAX_PLATES_PER_RUN=1000
 ```
 
 Keep `HEADLESS=false` for normal responsible use. Do not point `FLHSMV_URL` at unofficial services.
+
+`MAX_PLATES_PER_RUN` controls the longest run the interface and server will accept. The default is 1,000. Increasing it does not add parallelism; it only permits a longer serial browser session.
+
+Checking-speed profiles retain one visible Chromium page, use the official form's available fields (up to five), and keep CAPTCHA handling manual:
+
+| Profile | Batch delay | Result timeout | Retry delay | Retries |
+| --- | ---: | ---: | ---: | ---: |
+| `conservative` (default) | 5–10 seconds | 45 seconds | 3 seconds | 3 |
+| `balanced` | 3–6 seconds | 30 seconds | 2 seconds | 3 |
+| `faster` | 2–4 seconds | 25 seconds | 1.5 seconds | 2 |
+
+Set `CHECK_SPEED_PROFILE=balanced` or `CHECK_SPEED_PROFILE=faster` in `.env`. For individual control, set `CHECK_DELAY_MIN_SECONDS`, `CHECK_DELAY_MAX_SECONDS`, `RESULT_TIMEOUT_SECONDS`, `RETRY_DELAY_SECONDS`, or `MAX_RETRIES`. Older `MIN_DELAY_SECONDS`, `MAX_DELAY_SECONDS`, and `MAX_CANDIDATES_PER_RUN` values remain recognized for compatibility; remove them from an older `.env` when switching to profile-based timing.
+
+The checker reuses one browser page for the complete run, clears every official form field between batches, waits for submitted plate/result rows instead of network-idle, retries transient failures, and commits results once per batch. Run history records elapsed time, completed batches, average active seconds per plate, retries, errors, and manual CAPTCHA pause time separately.
 
 ## Original command-line checker
 
@@ -201,7 +262,7 @@ Launch `python app.py` from a normal macOS Terminal or Windows PowerShell deskto
 
 ### No input fields detected or result parsing fails
 
-The FLHSMV page may have changed. The run stops and writes a screenshot and HTML snapshot to `plate_checker_debug/`. The verified selectors are in `app/checker_service.py`: plate fields are currently within `#inquiry`, Submit uses `#MainContent_btnSubmit`, and each result is paired with the text input in the same table row.
+The FLHSMV page may have changed. The run stops and writes a screenshot and HTML snapshot to `user_data/debug/`. The verified selectors are in `app/checker_service.py`: plate fields are currently within `#inquiry`, Submit uses `#MainContent_btnSubmit`, and each result is paired with the text input in the same table row.
 
 ### Timeout
 

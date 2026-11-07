@@ -50,10 +50,14 @@
               <div><dt>Duration</dt><dd>{{ ri.duration }}</dd></div>
               <div><dt>Speed</dt><dd>{{ ri.per_minute }} plates/min</dd></div>
               <div><dt>Last batch</dt><dd>{{ run.current_batch }}</dd></div>
+              <div><dt>Batches completed</dt><dd>{{ run.batches_completed }}</dd></div>
+              <div><dt>Average per plate</dt><dd>{{ '%.1f'|format(run.average_seconds_per_plate) }}s</dd></div>
+              <div><dt>Retries</dt><dd>{{ run.retry_count }}</dd></div>
+              <div><dt>Time paused for verification</dt><dd>{{ '%.0f'|format(run.captcha_pause_seconds) }}s</dd></div>
               <div><dt>Last plate processed</dt><dd>{{ run.last_processed_plate or '—' }}</dd></div>
               <div><dt>Invalid / Unknown / Error</dt><dd>{{ run.invalid_count }} / {{ run.unknown_count }} / {{ run.error_count }}</dd></div>
             </dl>
-            <p class="muted small">Retries happen automatically (up to the configured limit) and aren't recorded per batch; a run that exhausts them ends with an explanation above.</p>
+            <p class="muted small">Retries happen automatically (up to the configured limit); a run that exhausts them ends with an explanation above.</p>
           </details>
         </div>
       </li>

@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 import json
+import logging
+from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote, urlencode
 
 from fastapi import APIRouter, Depends, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import Select, func, select
 from sqlalchemy.orm import Session, selectinload
@@ -17,6 +19,7 @@ from starlette.datastructures import UploadFile
 
 from app.backup import build_backup, restore_backup
 from app.checker_service import CheckerService
+from app.data_paths import create_database_backup
 from app.database import SessionLocal, get_db
 from app.exporter import rows_to_csv
 from app.generator import IDEA_OPTIONS, MAX_PREVIEW_COMBINATIONS, estimate_generation, generate_candidates
@@ -29,6 +32,16 @@ from app.settings import PROJECT_ROOT, settings
 
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
+if settings.development_mode:
+    logger.setLevel(logging.INFO)
+    if not logger.handlers:
+        development_handler = logging.StreamHandler()
+        development_handler.setFormatter(
+            logging.Formatter("%(levelname)s %(name)s: %(message)s")
+        )
+        logger.addHandler(development_handler)
+    logger.propagate = False
 templates = Jinja2Templates(directory=str(PROJECT_ROOT / "templates"))
 run_manager = RunManager(SessionLocal, lambda: CheckerService(settings))
 
@@ -149,13 +162,15 @@ templates.env.globals["run_info"] = run_info
 templates.env.globals["flhsmv_url"] = settings.flhsmv_url
 templates.env.globals["max_plate_length"] = settings.max_plate_length
 templates.env.globals["large_run_threshold"] = settings.large_run_confirmation_threshold
-templates.env.globals["max_run_size"] = settings.max_candidates_per_run
+templates.env.globals["max_run_size"] = settings.max_plates_per_run
 
 
 def _redirect(path: str, message: str, kind: str = "success") -> RedirectResponse:
-    separator = "&" if "?" in path else "?"
+    base_path, marker, fragment = path.partition("#")
+    separator = "&" if "?" in base_path else "?"
+    suffix = f"#{fragment}" if marker else ""
     return RedirectResponse(
-        f"{path}{separator}message={quote(message)}&kind={quote(kind)}",
+        f"{base_path}{separator}message={quote(message)}&kind={quote(kind)}{suffix}",
         status_code=303,
     )
 
@@ -342,6 +357,18 @@ def legacy_dashboard() -> RedirectResponse:
     return RedirectResponse("/tools", status_code=307)
 
 
+@router.post("/backups/create")
+def create_backup() -> FileResponse:
+    """Create and download a consistent local copy of the research database."""
+
+    backup_path = create_database_backup(settings.database_path, settings.backups_directory)
+    return FileResponse(
+        backup_path,
+        media_type="application/vnd.sqlite3",
+        filename=backup_path.name,
+    )
+
+
 @router.post("/imports/manual/preview", response_class=HTMLResponse)
 async def preview_manual_import(
     request: Request, session: Session = Depends(get_db)
@@ -377,7 +404,13 @@ async def preview_upload(request: Request, session: Session = Depends(get_db)) -
 
     if suffix == ".txt":
         report = analyze_candidates(parse_text_content(content), settings.max_plate_length)
-        return _render_dashboard(session, request, import_report=report, import_source=upload.filename)
+        return _render_dashboard(
+            session,
+            request,
+            import_report=report,
+            import_source=upload.filename,
+            review_kind="upload",
+        )
 
     try:
         inspection = inspect_csv(content)
@@ -385,7 +418,13 @@ async def preview_upload(request: Request, session: Session = Depends(get_db)) -
         return _render_dashboard(session, request, upload_error=str(exc))
     if inspection.selected_column:
         report = analyze_candidates(inspection.values, settings.max_plate_length)
-        return _render_dashboard(session, request, import_report=report, import_source=upload.filename)
+        return _render_dashboard(
+            session,
+            request,
+            import_report=report,
+            import_source=upload.filename,
+            review_kind="upload",
+        )
     return _render_dashboard(
         session,
         request,
@@ -406,7 +445,13 @@ async def select_csv_column(
     try:
         inspection = inspect_csv(content, column)
         report = analyze_candidates(inspection.values, settings.max_plate_length)
-        return _render_dashboard(session, request, import_report=report, import_source=filename)
+        return _render_dashboard(
+            session,
+            request,
+            import_report=report,
+            import_source=filename,
+            review_kind="upload",
+        )
     except ValueError as exc:
         return _render_dashboard(session, request, upload_error=str(exc))
 
@@ -468,6 +513,9 @@ def _parse_date(value: str) -> date | None:
 
 def _filtered_plate_query(params: Any) -> Select[tuple[Plate]]:
     query = select(Plate)
+    ids = [value for value in str(params.get("ids", "")).split(",") if value.isdigit()]
+    if ids:
+        query = query.where(Plate.id.in_([int(value) for value in ids]))
     search = str(params.get("q", "")).strip().upper()
     if search:
         query = query.where(Plate.normalized_plate.contains(search))
@@ -852,18 +900,72 @@ async def import_generated(request: Request, session: Session = Depends(get_db))
 # ---------------------------------------------------------------------------
 
 
+@dataclass(frozen=True)
+class PlateIdSelection:
+    ids: list[int]
+    invalid_values: list[str]
+    missing_ids: list[int]
+
+
+def _validate_plate_id_selection(session: Session, raw_values: list[str]) -> PlateIdSelection:
+    ids: list[int] = []
+    invalid_values: list[str] = []
+    seen: set[int] = set()
+    for raw_value in raw_values:
+        value = raw_value.strip()
+        if not value.isdigit() or int(value) < 1:
+            invalid_values.append(raw_value)
+            continue
+        plate_id = int(value)
+        if plate_id not in seen:
+            ids.append(plate_id)
+            seen.add(plate_id)
+    existing = set(
+        session.scalars(select(Plate.id).where(Plate.id.in_(ids))).all()
+    ) if ids else set()
+    return PlateIdSelection(
+        ids=ids,
+        invalid_values=invalid_values,
+        missing_ids=[plate_id for plate_id in ids if plate_id not in existing],
+    )
+
+
+
+
 @router.post("/runs/start")
-async def start_run(request: Request) -> RedirectResponse:
+async def start_run(
+    request: Request, session: Session = Depends(get_db)
+) -> RedirectResponse:
     form = await request.form()
+    raw_values = [str(value) for value in form.getlist("plate_ids")]
     return_url = _safe_return_url(str(form.get("return_url", "/saved")))
-    try:
-        plate_ids = [int(value) for value in form.getlist("plate_ids")]
-    except ValueError:
-        return _redirect(return_url, "Invalid plate selection.", "error")
-    if len(plate_ids) > settings.max_candidates_per_run:
+    selection = _validate_plate_id_selection(session, raw_values)
+    if settings.development_mode:
+        logger.info(
+            "Run selection received=%d raw=%s accepted=%d ids=%s invalid=%s missing=%s",
+            len(raw_values),
+            raw_values,
+            len(selection.ids) - len(selection.missing_ids),
+            selection.ids,
+            selection.invalid_values,
+            selection.missing_ids,
+        )
+    if not raw_values:
+        return _redirect(return_url, "Select at least one plate first.", "error")
+    if selection.invalid_values or selection.missing_ids:
         return _redirect(
             return_url,
-            f"You can check at most {settings.max_candidates_per_run} plates at a time.",
+            "The selection contained an invalid or missing plate ID. Nothing was started.",
+            "error",
+        )
+    plate_ids = selection.ids
+    if not plate_ids:
+        return _redirect(return_url, "Select at least one plate first.", "error")
+    if len(plate_ids) > settings.max_plates_per_run:
+        return _redirect(
+            return_url,
+            f"You selected {len(plate_ids)} plates; the configured maximum is "
+            f"{settings.max_plates_per_run}.",
             "error",
         )
     if (

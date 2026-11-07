@@ -115,6 +115,10 @@
       <h3 class="h4">Download a backup</h3>
       <p class="muted">One file with every saved plate, favorite, note, check result, and check session.</p>
       <a class="button primary" href="/backup.json" download>Download backup</a>
+      <form action="/backups/create" method="post" class="inline-form">
+        <button class="button ghost" type="submit">Download full database copy</button>
+      </form>
+      <p class="muted small">The database copy is also saved in <code>user_data/backups/</code> on this computer.</p>
     </article>
     <article class="card">
       <h3 class="h4">Restore from a backup</h3>

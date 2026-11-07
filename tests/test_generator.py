@@ -7,8 +7,8 @@ def test_required_generators_produce_expected_examples() -> None:
     ).candidates
     assert "786A" in generate_candidates("number_letter", start=786, end=786).candidates
     assert generate_candidates(
-        "prefix_number", prefix="TAM", start=786, end=786
-    ).candidates == ["TAM786"]
+        "prefix_number", prefix="FL", start=123, end=123
+    ).candidates == ["FL123"]
     assert "T7A" in generate_candidates(
         "letter_number_letter", start=7, end=7
     ).candidates
@@ -19,17 +19,17 @@ def test_required_generators_produce_expected_examples() -> None:
 
 
 def test_custom_template_and_keyword_variations() -> None:
-    custom = generate_candidates("custom_template", template="{WORD}{NN}", word="TAM")
-    assert "TAM00" in custom.candidates
-    assert "TAM99" in custom.candidates
+    custom = generate_candidates("custom_template", template="{WORD}{NN}", word="SUN")
+    assert "SUN00" in custom.candidates
+    assert "SUN99" in custom.candidates
     keywords = generate_candidates(
         "keyword_variations",
-        keywords="TARIQ",
+        keywords="COAST",
         start=7,
         end=7,
         substitutions=True,
     )
-    assert "TAR1Q7" in keywords.candidates
+    assert "C0AST7" in keywords.candidates
 
 
 def test_generator_rejects_overlength_without_truncating() -> None:
@@ -38,4 +38,3 @@ def test_generator_rejects_overlength_without_truncating() -> None:
     )
     assert result.candidates == []
     assert any("TOOLONG99" in rejection for rejection in result.rejected)
-

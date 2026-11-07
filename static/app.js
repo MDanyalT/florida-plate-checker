@@ -308,6 +308,10 @@
     set('run-checked', run.checked_count);
     set('run-total', run.total_candidates);
     set('run-batch', run.current_batch);
+    set('run-batches-completed', run.batches_completed ?? 0);
+    set('run-elapsed', `${Number(run.elapsed_seconds || 0).toFixed(0)}s`);
+    set('run-average', run.checked_count ? `${Number(run.average_seconds_per_plate || 0).toFixed(1)}s/plate` : '—');
+    set('run-retries', run.retry_count ?? 0);
     set('run-available', run.available_count);
     set('run-unavailable', run.unavailable_count);
     set('run-review', run.invalid_count + run.unknown_count + run.error_count);

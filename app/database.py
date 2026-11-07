@@ -6,10 +6,11 @@ from collections.abc import Iterator
 from datetime import datetime
 from pathlib import Path
 
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine, event, inspect, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.data_paths import prepare_data_storage
 from app.models import Base, CheckHistory, CheckingRun, Plate, utc_now
 from app.settings import settings
 
@@ -32,12 +33,39 @@ def create_sqlite_engine(path: Path) -> Engine:
     return engine
 
 
+prepare_data_storage(
+    data_directory=settings.data_directory,
+    database_path=settings.database_path,
+    legacy_database_path=settings.legacy_database_path,
+)
 engine = create_sqlite_engine(settings.database_path)
 SessionLocal = sessionmaker(bind=engine, expire_on_commit=False, autoflush=False, future=True)
 
 
+RUN_METRIC_COLUMNS = {
+    "batches_completed": "INTEGER NOT NULL DEFAULT 0",
+    "retry_count": "INTEGER NOT NULL DEFAULT 0",
+    "elapsed_seconds": "FLOAT NOT NULL DEFAULT 0",
+    "captcha_pause_seconds": "FLOAT NOT NULL DEFAULT 0",
+}
+
+
+def _add_missing_run_metric_columns(target_engine: Engine) -> None:
+    """Apply the small additive SQLite migration without replacing user data."""
+
+    inspector = inspect(target_engine)
+    if "checking_runs" not in inspector.get_table_names():
+        return
+    existing = {column["name"] for column in inspector.get_columns("checking_runs")}
+    with target_engine.begin() as connection:
+        for name, definition in RUN_METRIC_COLUMNS.items():
+            if name not in existing:
+                connection.execute(text(f"ALTER TABLE checking_runs ADD COLUMN {name} {definition}"))
+
+
 def init_db(target_engine: Engine = engine) -> None:
     Base.metadata.create_all(bind=target_engine)
+    _add_missing_run_metric_columns(target_engine)
 
 
 def get_db() -> Iterator[Session]:
@@ -84,4 +112,3 @@ def apply_check_result(
         )
     )
     return changed
-

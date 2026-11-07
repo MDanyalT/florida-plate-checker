@@ -104,6 +104,17 @@ class RunManager:
             thread.join(timeout=timeout)
 
     def _worker(self, run_id: int, plate_ids: Sequence[int]) -> None:
+        processed_plates: set[str] = set()
+
+        def update_elapsed(run: CheckingRun) -> None:
+            started_at = run.started_at
+            if started_at.tzinfo is None:
+                started_at = started_at.replace(tzinfo=timezone.utc)
+            run.elapsed_seconds = max(
+                run.elapsed_seconds,
+                (datetime.now(timezone.utc) - started_at).total_seconds(),
+            )
+
         with self.session_factory() as session:
             run = session.get(CheckingRun, run_id)
             if run is None:
@@ -123,35 +134,64 @@ class RunManager:
                 run = session.get(CheckingRun, run_id)
                 if run:
                     run.current_batch = batch_number
+                    update_elapsed(run)
                     session.commit()
 
-        def save_result(result: CheckResult) -> None:
+        def update_metric(name: str, value: float) -> None:
             with self.session_factory() as session:
                 run = session.get(CheckingRun, run_id)
-                plate = session.scalar(
-                    select(Plate).where(Plate.normalized_plate == result.plate)
-                )
-                if run is None or plate is None:
-                    raise RuntimeError(f"Database plate disappeared during run: {result.plate}")
-                apply_check_result(
-                    session,
-                    plate=plate,
-                    status=result.status,
-                    raw_result=result.raw_result,
-                    checked_at=result.checked_at,
-                    batch_number=result.batch_number,
-                    run=run,
-                )
-                run.checked_count += 1
-                run.last_processed_plate = result.plate
-                counter = {
-                    "Available": "available_count",
-                    "Not available": "unavailable_count",
-                    "Invalid": "invalid_count",
-                    "Unknown": "unknown_count",
-                    "Error": "error_count",
-                }[result.status]
-                setattr(run, counter, getattr(run, counter) + 1)
+                if run is None:
+                    return
+                if name == "retry":
+                    run.retry_count += int(value)
+                elif name == "captcha_pause":
+                    run.captcha_pause_seconds += max(0.0, value)
+                elif name == "batch_completed":
+                    run.batches_completed += int(value)
+                update_elapsed(run)
+                session.commit()
+
+        def save_batch_results(results: Sequence[CheckResult]) -> None:
+            fresh_results = [result for result in results if result.plate not in processed_plates]
+            if not fresh_results:
+                return
+            with self.session_factory() as session:
+                run = session.get(CheckingRun, run_id)
+                if run is None:
+                    raise RuntimeError(f"Checking run #{run_id} disappeared.")
+                plates = session.scalars(
+                    select(Plate).where(
+                        Plate.normalized_plate.in_([result.plate for result in fresh_results])
+                    )
+                ).all()
+                by_plate = {plate.normalized_plate: plate for plate in plates}
+                for result in fresh_results:
+                    plate = by_plate.get(result.plate)
+                    if plate is None:
+                        raise RuntimeError(
+                            f"Database plate disappeared during run: {result.plate}"
+                        )
+                    apply_check_result(
+                        session,
+                        plate=plate,
+                        status=result.status,
+                        raw_result=result.raw_result,
+                        checked_at=result.checked_at,
+                        batch_number=result.batch_number,
+                        run=run,
+                    )
+                    processed_plates.add(result.plate)
+                    run.checked_count += 1
+                    run.last_processed_plate = result.plate
+                    counter = {
+                        "Available": "available_count",
+                        "Not available": "unavailable_count",
+                        "Invalid": "invalid_count",
+                        "Unknown": "unknown_count",
+                        "Error": "error_count",
+                    }[result.status]
+                    setattr(run, counter, getattr(run, counter) + 1)
+                update_elapsed(run)
                 session.commit()
 
         try:
@@ -161,9 +201,10 @@ class RunManager:
                 candidates = [by_id[plate_id].normalized_plate for plate_id in plate_ids if plate_id in by_id]
             stopped = self.service_factory().run(
                 candidates,
-                on_result=save_result,
+                on_batch_results=save_batch_results,
                 on_batch=update_batch,
                 on_state=update_state,
+                on_metric=update_metric,
                 should_stop=self._stop_event.is_set,
             )
             with self.session_factory() as session:
@@ -171,6 +212,7 @@ class RunManager:
                 if run:
                     run.status = "stopped" if stopped else "completed"
                     run.completed_at = datetime.now(timezone.utc)
+                    update_elapsed(run)
                     session.commit()
         except Exception as exc:
             with self.session_factory() as session:
@@ -179,4 +221,5 @@ class RunManager:
                     run.status = "failed"
                     run.completed_at = datetime.now(timezone.utc)
                     run.error_message = str(exc)
+                    update_elapsed(run)
                     session.commit()

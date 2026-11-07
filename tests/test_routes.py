@@ -15,10 +15,17 @@ from app.settings import PROJECT_ROOT
 
 
 class FakeChecker:
-    def run(self, candidates, *, on_result, on_batch=None, on_state=None, should_stop=None):
-        for plate in candidates:
-            on_result(CheckResult(plate=plate, status="Available", raw_result="AVAILABLE",
-                                  checked_at=datetime.now(timezone.utc), batch_number=1))
+    def run(self, candidates, *, on_batch_results=None, on_result=None, **_callbacks):
+        results = [
+            CheckResult(plate=plate, status="Available", raw_result="AVAILABLE",
+                        checked_at=datetime.now(timezone.utc), batch_number=1)
+            for plate in candidates
+        ]
+        if on_batch_results:
+            on_batch_results(results)
+        else:
+            for result in results:
+                on_result(result)
         return False
 
 
