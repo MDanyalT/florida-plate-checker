@@ -16,7 +16,7 @@
 
   <aside class="panel run-list-panel">
     <div class="panel-heading"><div><span class="eyebrow">Recent sessions</span><h2>Checking runs</h2></div></div>
-    {% if runs %}<div class="run-list">{% for run in runs %}<article><div><strong>Run #{{ run.id }}</strong><span class="status-badge status-{{ run.status|lower }}">{{ run.status }}</span></div><p>{{ run.checked_count }}/{{ run.total_candidates }} checked · {{ run.available_count }} available</p><time>{{ run.started_at|datetime }}</time>{% if run.error_message %}<small class="inline-error">{{ run.error_message }}</small>{% endif %}</article>{% endfor %}</div>{% else %}<div class="empty-state"><strong>No runs yet</strong></div>{% endif %}
+    {% if runs %}<div class="run-list">{% for run in runs %}<article><div><strong>Run #{{ run.id }}</strong><span class="status-badge status-{{ run.status|lower }}">{{ run.status }}</span></div><p>{{ run.checked_count }}/{{ run.total_candidates }} checked · {{ run.batches_completed }} batches · {{ '%.1f'|format(run.elapsed_seconds) }}s elapsed · {{ '%.1f'|format(run.average_seconds_per_plate) }}s/plate · {{ run.retry_count }} retries</p><time>{{ run.started_at|datetime }}</time>{% if run.error_message %}<small class="inline-error">{{ run.error_message }}</small>{% endif %}</article>{% endfor %}</div>{% else %}<div class="empty-state"><strong>No runs yet</strong></div>{% endif %}
   </aside>
 </section>
 {% endblock %}

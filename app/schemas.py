@@ -22,10 +22,15 @@ class RunProgress(BaseModel):
     unknown_count: int
     error_count: int
     current_batch: int
+    batches_completed: int
+    retry_count: int
+    elapsed_seconds: float
+    captcha_pause_seconds: float
+    active_processing_seconds: float
+    average_seconds_per_plate: float
     last_processed_plate: str | None = None
     error_message: str | None = None
 
 
 class NotesUpdate(BaseModel):
     notes: str = Field(max_length=2000)
-

@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light">
   <title>{% block title %}Florida Plate Research{% endblock %}</title>
-  <link rel="stylesheet" href="{{ url_for('static', path='styles.css') }}?v=20260803-3">
-  <script defer src="{{ url_for('static', path='app.js') }}?v=20260803-3"></script>
+  <link rel="stylesheet" href="{{ url_for('static', path='styles.css') }}?v=20260806-1">
+  <script defer src="{{ url_for('static', path='app.js') }}?v=20260806-1"></script>
 </head>
 <body>
   <header class="site-header">
@@ -44,6 +44,10 @@
       <span><b id="run-checked">0</b> checked</span>
       <span><b id="run-total">0</b> total</span>
       <span>Batch <b id="run-batch">0</b></span>
+      <span><b id="run-batches-completed">0</b> batches completed</span>
+      <span>Elapsed <b id="run-elapsed">0s</b></span>
+      <span>Average <b id="run-average">—</b></span>
+      <span>Retries <b id="run-retries">0</b></span>
       <span class="metric-available"><b id="run-available">0</b> available</span>
       <span class="metric-unavailable"><b id="run-unavailable">0</b> unavailable</span>
       <span><b id="run-invalid">0</b> invalid</span>

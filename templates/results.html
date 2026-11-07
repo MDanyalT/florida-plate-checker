@@ -11,7 +11,7 @@
 <section class="post-add-callout" aria-label="Newly added plates">
   <div><strong>These are the plates from your latest addition.</strong><p>They are saved locally. Checking only begins when you choose an action below.</p></div>
   {% if untested_count %}
-  <form action="/runs/start" method="post" data-large-run-form data-run-count="{{ untested_ids|length }}" data-threshold="{{ large_run_threshold }}">
+  <form action="/runs/start" method="post" data-large-run-form data-run-count="{{ untested_ids|length }}" data-threshold="{{ large_run_threshold }}" data-max-plates="{{ max_plates_per_run }}">
     <input type="hidden" name="confirm_large" value="no">
     {% for plate_id in untested_ids %}<input type="hidden" name="plate_ids" value="{{ plate_id }}">{% endfor %}
     <button class="button primary" type="submit">Check these plates</button>
@@ -39,23 +39,27 @@
   <div class="filter-actions"><button class="button primary small" type="submit">Apply filters</button><a href="/results">Clear</a></div>
 </form>
 
-<form id="bulk-run" action="/runs/start" method="post" data-large-run-form data-threshold="{{ large_run_threshold }}">
+<form id="bulk-run" action="{{ bulk_run_action }}" method="post" data-large-run-form data-visible-plate-selection data-threshold="{{ large_run_threshold }}" data-max-plates="{{ max_plates_per_run }}" data-development="{{ 'true' if development_mode else 'false' }}">
   <input type="hidden" name="confirm_large" value="no">
+  <input type="hidden" name="return_url" value="{{ request.url.path }}?{{ request.query_params }}">
 </form>
 
 <section class="table-panel">
   <div class="table-toolbar">
     <label><input type="checkbox" data-table-select-all> Select this page</label>
-    <button id="bulk-run-label" class="button primary small" type="submit" form="bulk-run" disabled>Check selected plates</button>
+    <button id="bulk-run-label" class="button primary small" type="submit" form="bulk-run">Check selected plates</button>
+    <span id="bulk-selection-count" class="toolbar-note" aria-live="polite">0 selected</span>
+    <span id="bulk-run-error" class="inline-error selection-error" role="alert" hidden></span>
     {% if untested_count and untested_count <= untested_ids|length %}
-    <form action="/runs/start" method="post" data-large-run-form data-run-count="{{ untested_count }}" data-threshold="{{ large_run_threshold }}">
+    <form action="/runs/start" method="post" data-large-run-form data-run-count="{{ untested_count }}" data-threshold="{{ large_run_threshold }}" data-max-plates="{{ max_plates_per_run }}">
       <input type="hidden" name="confirm_large" value="no">
       {% for plate_id in untested_ids %}<input type="hidden" name="plate_ids" value="{{ plate_id }}">{% endfor %}
       <button class="button secondary small" type="submit">Check all {{ untested_count }} untested plate{{ '' if untested_count == 1 else 's' }}</button>
     </form>
     {% elif untested_count %}
-      <span class="toolbar-note">{{ untested_count }} untested match this view. Select up to {{ untested_ids|length }} for one run.</span>
+      <span class="toolbar-note">{{ untested_count }} untested match this view.</span>
     {% endif %}
+    <span class="toolbar-note">Run limit: {{ max_plates_per_run }} plates.</span>
     <div class="export-menu">
       <a href="/exports/plates.csv?scope=all">All CSV</a>
       <a href="/exports/plates.csv?scope=available">Available</a>
@@ -80,7 +84,7 @@
       <tbody>
       {% for plate in plates %}
         <tr>
-          <td><input type="checkbox" name="plate_ids" value="{{ plate.id }}" form="bulk-run" data-row-check data-checked="{{ 'true' if plate.last_checked_at else 'false' }}" aria-label="Select {{ plate.normalized_plate }}"></td>
+          <td><input type="checkbox" name="plate_ids" value="{{ plate.id }}" form="bulk-run" data-row-check data-plate-id="{{ plate.id }}" data-plate="{{ plate.normalized_plate }}" data-checked="{{ 'true' if plate.last_checked_at else 'false' }}" aria-label="Select {{ plate.normalized_plate }}"></td>
           <td><span class="plate-display">{{ plate.normalized_plate }}</span></td>
           <td>
             <span class="status-badge status-{{ (plate.current_status or 'never-checked')|lower|replace(' ', '-') }}">{{ plate.current_status or 'Never Checked' }}</span>

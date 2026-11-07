@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -65,8 +65,22 @@ class CheckingRun(Base):
     unknown_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     error_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     current_batch: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    batches_completed: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    retry_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    elapsed_seconds: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    captcha_pause_seconds: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
     last_processed_plate: Mapped[str | None] = mapped_column(String(32), nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    @property
+    def active_processing_seconds(self) -> float:
+        return max(0.0, self.elapsed_seconds - self.captcha_pause_seconds)
+
+    @property
+    def average_seconds_per_plate(self) -> float:
+        if not self.checked_count:
+            return 0.0
+        return self.active_processing_seconds / self.checked_count
 
     history: Mapped[list[CheckHistory]] = relationship(back_populates="run")
 
@@ -93,4 +107,3 @@ class CheckHistory(Base):
 
     plate: Mapped[Plate] = relationship(back_populates="history")
     run: Mapped[CheckingRun | None] = relationship(back_populates="history")
-

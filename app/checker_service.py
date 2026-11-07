@@ -23,6 +23,9 @@ from playwright.sync_api import (
 from app.settings import Settings, settings
 
 
+MetricCallback = Callable[[str, float], None]
+
+
 FIELD_SELECTOR = "#inquiry input.inputText[type='text']"
 FIELD_FALLBACK_SELECTOR = "#inquiry input[type='text'][aria-label^='Plate configuration']"
 SUBMIT_SELECTOR = "#MainContent_btnSubmit"
@@ -97,13 +100,17 @@ class CheckerService:
         self,
         candidates: Sequence[str],
         *,
-        on_result: Callable[[CheckResult], None],
+        on_result: Callable[[CheckResult], None] | None = None,
+        on_batch_results: Callable[[Sequence[CheckResult]], None] | None = None,
         on_batch: Callable[[int, Sequence[str]], None] | None = None,
         on_state: Callable[[str], None] | None = None,
+        on_metric: MetricCallback | None = None,
         should_stop: Callable[[], bool] | None = None,
     ) -> bool:
         """Check candidates and return True when stopped before completion."""
 
+        if on_result is None and on_batch_results is None:
+            raise ValueError("A result callback is required.")
         should_stop = should_stop or (lambda: False)
         with sync_playwright() as playwright:
             browser: Browser | None = None
@@ -117,7 +124,7 @@ class CheckerService:
                         f"in the same environment. Details: {first_line}"
                     ) from exc
                 page = browser.new_page()
-                fields = self._open_checker_with_retries(page, on_state)
+                fields = self._open_checker_with_retries(page, on_state, on_metric)
                 batch_size = min(len(fields), self.config.max_batch_size, 5)
                 if batch_size < 1:
                     raise PageStructureError("No usable personalized-plate fields were detected.")
@@ -135,9 +142,16 @@ class CheckerService:
                     batch = list(candidates[start : start + batch_size])
                     if on_batch:
                         on_batch(batch_number, batch)
-                    results = self._check_batch_with_retries(page, batch, batch_number, on_state)
-                    for result in results:
-                        on_result(result)
+                    results = self._check_batch_with_retries(
+                        page, batch, batch_number, on_state, on_metric
+                    )
+                    if on_batch_results:
+                        on_batch_results(results)
+                    elif on_result:
+                        for result in results:
+                            on_result(result)
+                    if on_metric:
+                        on_metric("batch_completed", 1.0)
                     if batch_number < total_batches:
                         delay = random.uniform(
                             self.config.min_delay_seconds, self.config.max_delay_seconds
@@ -158,15 +172,25 @@ class CheckerService:
         batch: Sequence[str],
         batch_number: int,
         on_state: Callable[[str], None] | None,
+        on_metric: MetricCallback | None,
     ) -> list[CheckResult]:
         last_error: Exception | None = None
         for attempt in range(1, self.config.max_retries + 1):
             try:
-                return self._submit_batch(page, batch, batch_number, on_state)
-            except TransientCheckError as exc:
+                return self._submit_batch(
+                    page,
+                    batch,
+                    batch_number,
+                    on_state,
+                    on_metric,
+                    force_reload=attempt > 1,
+                )
+            except (TransientCheckError, ResultExtractionError) as exc:
                 last_error = exc
                 if attempt < self.config.max_retries:
-                    time.sleep(min(attempt * 2, 5))
+                    if on_metric:
+                        on_metric("retry", 1.0)
+                    time.sleep(self.config.retry_delay_seconds)
         raise RuntimeError(
             f"Batch {batch_number} failed after {self.config.max_retries} attempts: {last_error}"
         )
@@ -184,7 +208,10 @@ class CheckerService:
                 raise SafetyStop(f"FLHSMV displayed '{term}'. The run was stopped safely.")
 
     def _handle_captcha(
-        self, page: Page, on_state: Callable[[str], None] | None
+        self,
+        page: Page,
+        on_state: Callable[[str], None] | None,
+        on_metric: MetricCallback | None = None,
     ) -> None:
         text = self._page_text(page)
         if any(term in text for term in CAPTCHA_TERMS):
@@ -192,7 +219,10 @@ class CheckerService:
                 on_state("captcha")
             print("\nCAPTCHA or human verification detected.")
             print("Complete it manually in the visible browser. This application will not solve it.")
+            pause_started = time.monotonic()
             input("Press Enter here when the FLHSMV checker is ready...")
+            if on_metric:
+                on_metric("captcha_pause", time.monotonic() - pause_started)
             self._detect_safety_page(page)
             if on_state:
                 on_state("running")
@@ -248,7 +278,10 @@ class CheckerService:
         return min(limits, default=self.config.max_plate_length)
 
     def _open_checker_with_retries(
-        self, page: Page, on_state: Callable[[str], None] | None
+        self,
+        page: Page,
+        on_state: Callable[[str], None] | None,
+        on_metric: MetricCallback | None = None,
     ) -> list[Locator]:
         last_error: Exception | None = None
         for attempt in range(1, self.config.max_retries + 1):
@@ -261,7 +294,7 @@ class CheckerService:
                 page.locator("#inquiry").wait_for(
                     state="visible", timeout=self.config.navigation_timeout_ms
                 )
-                self._handle_captcha(page, on_state)
+                self._handle_captcha(page, on_state, on_metric)
                 self._detect_safety_page(page)
                 return self._find_fields(page)
             except SafetyStop:
@@ -271,7 +304,9 @@ class CheckerService:
             except (PlaywrightTimeoutError, PlaywrightError) as exc:
                 last_error = exc
                 if attempt < self.config.max_retries:
-                    time.sleep(min(attempt * 2, 5))
+                    if on_metric:
+                        on_metric("retry", 1.0)
+                    time.sleep(self.config.retry_delay_seconds)
         raise RuntimeError(
             f"Could not open the checker after {self.config.max_retries} attempts: {last_error}"
         )
@@ -282,13 +317,27 @@ class CheckerService:
         batch: Sequence[str],
         batch_number: int,
         on_state: Callable[[str], None] | None,
+        on_metric: MetricCallback | None,
+        *,
+        force_reload: bool,
     ) -> list[CheckResult]:
-        fields = self._open_checker_with_retries(page, on_state)
+        if force_reload:
+            fields = self._open_checker_with_retries(page, on_state, on_metric)
+        else:
+            try:
+                self._detect_safety_page(page)
+                self._handle_captcha(page, on_state, on_metric)
+                fields = self._find_fields(page)
+                self._find_submit(page)
+            except PageStructureError:
+                fields = self._open_checker_with_retries(page, on_state, on_metric)
         usable_count = min(len(fields), self.config.max_batch_size, 5)
         if len(batch) > usable_count:
             raise PageStructureError(
                 f"The live page now has {usable_count} fields for a {len(batch)}-plate batch."
             )
+        for field in fields[:usable_count]:
+            field.fill("", timeout=self.config.navigation_timeout_ms)
         for field, plate in zip(fields[: len(batch)], batch, strict=True):
             field.fill(plate, timeout=self.config.navigation_timeout_ms)
         submit = self._find_submit(page)
@@ -300,7 +349,7 @@ class CheckerService:
         except PlaywrightTimeoutError as exc:
             raise TransientCheckError("Submission navigation timed out.") from exc
 
-        self._handle_captcha(page, on_state)
+        self._handle_captcha(page, on_state, on_metric)
         self._detect_safety_page(page)
         self._wait_for_results(page, batch)
         return self._extract_results(page, batch, batch_number)
@@ -320,7 +369,7 @@ class CheckerService:
                 }
                 """,
                 arg=list(submitted),
-                timeout=self.config.navigation_timeout_ms,
+                timeout=int(self.config.result_timeout_seconds * 1000),
             )
         except PlaywrightTimeoutError as exc:
             screenshot, html = self._save_debug(page, "result_timeout")
@@ -363,4 +412,3 @@ class CheckerService:
             )
             for plate in submitted
         ]
-

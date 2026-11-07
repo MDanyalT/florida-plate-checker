@@ -37,12 +37,78 @@ def test_health_endpoint() -> None:
     assert response.json() == {"status": "ok"}
 
 
+def test_launcher_health_check_bypasses_proxy(monkeypatch) -> None:
+    received: dict[str, object] = {}
+
+    class Response:
+        status = 200
+
+        def read(self) -> bytes:
+            return b'{"status": "ok"}'
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+    class LocalOpener:
+        def open(self, url: str, *, timeout: float) -> Response:
+            received["url"] = url
+            received["timeout"] = timeout
+            return Response()
+
+    def build_opener(proxy_handler):
+        received["proxy_handler"] = proxy_handler
+        return LocalOpener()
+
+    monkeypatch.setattr(launcher_utils.urllib.request, "build_opener", build_opener)
+
+    assert launcher_utils.health_is_ready(timeout=2.5) is True
+    assert received["url"] == "http://127.0.0.1:8000/health"
+    assert received["timeout"] == 2.5
+
+
 def test_first_run_database_initialization(tmp_path: Path) -> None:
     database = tmp_path / "new-user" / "plates.db"
     engine = create_sqlite_engine(database)
     init_db(engine)
     assert database.exists()
     assert {"plates", "checking_runs", "check_history"}.issubset(inspect(engine).get_table_names())
+    engine.dispose()
+
+
+def test_existing_database_receives_run_metrics_without_losing_rows(tmp_path: Path) -> None:
+    database = tmp_path / "existing.db"
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            "CREATE TABLE checking_runs ("
+            "id INTEGER PRIMARY KEY, status TEXT NOT NULL, total_candidates INTEGER NOT NULL, "
+            "checked_count INTEGER NOT NULL, available_count INTEGER NOT NULL, "
+            "unavailable_count INTEGER NOT NULL, invalid_count INTEGER NOT NULL, "
+            "unknown_count INTEGER NOT NULL, error_count INTEGER NOT NULL, "
+            "current_batch INTEGER NOT NULL, started_at DATETIME NOT NULL, "
+            "completed_at DATETIME, last_processed_plate TEXT, error_message TEXT)"
+        )
+        connection.execute(
+            "INSERT INTO checking_runs VALUES "
+            "(1, 'completed', 1, 1, 1, 0, 0, 0, 0, 1, CURRENT_TIMESTAMP, "
+            "CURRENT_TIMESTAMP, 'SAFE1', NULL)"
+        )
+    engine = create_sqlite_engine(database)
+    init_db(engine)
+    with sqlite3.connect(database) as connection:
+        columns = {row[1] for row in connection.execute("PRAGMA table_info(checking_runs)")}
+        saved = connection.execute(
+            "SELECT status, last_processed_plate FROM checking_runs WHERE id=1"
+        ).fetchone()
+    assert {
+        "batches_completed",
+        "retry_count",
+        "elapsed_seconds",
+        "captcha_pause_seconds",
+    }.issubset(columns)
+    assert saved == ("completed", "SAFE1")
     engine.dispose()
 
 

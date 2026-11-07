@@ -85,8 +85,12 @@ def is_project_process(pid: int, project_root: Path, command_line: str | None = 
 
 
 def health_is_ready(url: str = f"{LOCAL_URL}/health", timeout: float = 1.0) -> bool:
+    # A launcher must reach its own loopback server directly.  In particular,
+    # inherited HTTP(S)_PROXY settings can otherwise send this request to a
+    # proxy instead of 127.0.0.1 and make a healthy local app look unavailable.
+    local_opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
     try:
-        with urllib.request.urlopen(url, timeout=timeout) as response:
+        with local_opener.open(url, timeout=timeout) as response:
             return response.status == 200 and b'"status":"ok"' in response.read().replace(b" ", b"")
     except (OSError, urllib.error.URLError):
         return False

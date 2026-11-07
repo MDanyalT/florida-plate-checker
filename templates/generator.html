@@ -65,7 +65,7 @@
   <div class="panel-heading"><div><span class="eyebrow">Step 3 · Preview and add</span><h2>{{ generation.candidates|length }} valid candidates</h2><p>Previewing does not save or check these plates. Select the candidates you want, then choose an action.</p></div><div class="review-counts"><span>{{ generation.total_before_validation }} generated</span><span>{{ generation.duplicate_count }} duplicates removed</span><span class="bad">{{ generation.rejected|length }} rejected</span></div></div>
   {% if generation.large_warning %}<div class="warning-callout"><strong>Large set:</strong> more than 500 candidates were generated. Add only the focused subset you genuinely intend to research.</div>{% endif %}
   {% if generation.candidates %}
-  <form action="/generator/import" method="post" data-selection-form data-large-import-form data-add-check-form data-threshold="{{ large_run_threshold }}">
+  <form action="/generator/import" method="post" data-selection-form data-large-import-form data-add-check-form data-threshold="{{ large_run_threshold }}" data-max-plates="{{ max_plates_per_run }}">
     <input type="hidden" name="confirm_large" value="no">
     <div class="selection-toolbar sticky">
       <label><input type="checkbox" data-select-all checked> Select all</label>

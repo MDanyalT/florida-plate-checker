@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date, datetime, time, timezone
+import logging
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote, urlencode
@@ -29,6 +30,16 @@ from app.settings import PROJECT_ROOT, settings
 
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
+if settings.development_mode:
+    logger.setLevel(logging.INFO)
+    if not logger.handlers:
+        development_handler = logging.StreamHandler()
+        development_handler.setFormatter(
+            logging.Formatter("%(levelname)s %(name)s: %(message)s")
+        )
+        logger.addHandler(development_handler)
+    logger.propagate = False
 templates = Jinja2Templates(directory=str(PROJECT_ROOT / "templates"))
 run_manager = RunManager(SessionLocal, lambda: CheckerService(settings))
 
@@ -97,6 +108,10 @@ def _dashboard_summary(session: Session) -> dict[str, Any]:
                 "total_candidates": latest_run.total_candidates,
                 "available_count": latest_run.available_count,
                 "unavailable_count": latest_run.unavailable_count,
+                "batches_completed": latest_run.batches_completed,
+                "retry_count": latest_run.retry_count,
+                "elapsed_seconds": latest_run.elapsed_seconds,
+                "average_seconds_per_plate": latest_run.average_seconds_per_plate,
                 "started_at": _format_datetime(latest_run.started_at),
                 "error_message": latest_run.error_message,
             }
@@ -137,6 +152,7 @@ def _dashboard_context(session: Session, request: Request, **extra: Any) -> dict
         "max_plate_length": settings.max_plate_length,
         "max_upload_bytes": settings.max_upload_bytes,
         "large_run_threshold": settings.large_run_confirmation_threshold,
+        "max_plates_per_run": settings.max_plates_per_run,
     }
     context.update(extra)
     return context
@@ -315,12 +331,7 @@ def _complete_plate_add(
         return _redirect("/#add-plates", str(exc), "error")
 
     check_now = action == "check_now"
-    if (
-        source == "generator"
-        and not check_now
-        and len(plan.normalized) > 500
-        and not confirm_large
-    ):
+    if source == "generator" and not check_now and len(plan.normalized) > 500 and not confirm_large:
         return _redirect(
             "/generator",
             "Adding more than 500 generated plates requires confirmation.",
@@ -337,10 +348,11 @@ def _complete_plate_add(
                 "A checking run is already active. Add these plates to the library or wait for the current run to finish.",
                 "warning",
             )
-        if planned_run_size > settings.max_candidates_per_run:
+        if planned_run_size > settings.max_plates_per_run:
             return _redirect(
                 "/#add-plates",
-                f"A run may contain at most {settings.max_candidates_per_run} plates.",
+                f"You selected {planned_run_size} plates; the configured maximum is "
+                f"{settings.max_plates_per_run}.",
                 "error",
             )
         if (
@@ -483,7 +495,7 @@ def results(request: Request, session: Session = Depends(get_db)) -> HTMLRespons
         select(func.count()).select_from(untested_query.subquery())
     ) or 0
     untested_ids = session.scalars(
-        untested_query.order_by(Plate.created_at).limit(settings.max_candidates_per_run)
+        untested_query.order_by(Plate.created_at).limit(settings.max_plates_per_run)
     ).all()
     plates = session.scalars(query.offset((page - 1) * per_page).limit(per_page)).all()
     query_dict = dict(request.query_params)
@@ -507,6 +519,11 @@ def results(request: Request, session: Session = Depends(get_db)) -> HTMLRespons
             "statuses": ["Available", "Not available", "Invalid", "Unknown", "Error", "Never checked"],
             "max_plate_length": settings.max_plate_length,
             "large_run_threshold": settings.large_run_confirmation_threshold,
+            "max_plates_per_run": settings.max_plates_per_run,
+            "development_mode": settings.development_mode,
+            "bulk_run_action": (
+                "/dev/selection-preview" if settings.development_mode else "/runs/start"
+            ),
         },
     )
 
@@ -562,6 +579,7 @@ def generator_page(request: Request) -> HTMLResponse:
             "form_values": {},
             "max_plate_length": settings.max_plate_length,
             "large_run_threshold": settings.large_run_confirmation_threshold,
+            "max_plates_per_run": settings.max_plates_per_run,
         },
     )
 
@@ -597,6 +615,7 @@ async def generator_preview(request: Request) -> HTMLResponse:
             "form_values": form_values,
             "max_plate_length": settings.max_plate_length,
             "large_run_threshold": settings.large_run_confirmation_threshold,
+            "max_plates_per_run": settings.max_plates_per_run,
         },
     )
 
@@ -606,17 +625,104 @@ async def import_generated(request: Request, session: Session = Depends(get_db))
     return await _plate_add_from_request(request, session, source="generator")
 
 
-@router.post("/runs/start")
-async def start_run(request: Request) -> RedirectResponse:
+@dataclass(frozen=True)
+class PlateIdSelection:
+    ids: list[int]
+    invalid_values: list[str]
+    missing_ids: list[int]
+
+
+def _validate_plate_id_selection(session: Session, raw_values: list[str]) -> PlateIdSelection:
+    ids: list[int] = []
+    invalid_values: list[str] = []
+    seen: set[int] = set()
+    for raw_value in raw_values:
+        value = raw_value.strip()
+        if not value.isdigit() or int(value) < 1:
+            invalid_values.append(raw_value)
+            continue
+        plate_id = int(value)
+        if plate_id not in seen:
+            ids.append(plate_id)
+            seen.add(plate_id)
+    existing = set(
+        session.scalars(select(Plate.id).where(Plate.id.in_(ids))).all()
+    ) if ids else set()
+    return PlateIdSelection(
+        ids=ids,
+        invalid_values=invalid_values,
+        missing_ids=[plate_id for plate_id in ids if plate_id not in existing],
+    )
+
+
+@router.post("/dev/selection-preview")
+async def preview_run_selection(
+    request: Request, session: Session = Depends(get_db)
+) -> JSONResponse:
+    """Echo a validated selection during local QA without starting Chromium."""
+    if not settings.development_mode:
+        return JSONResponse({"detail": "Not found"}, status_code=404)
     form = await request.form()
-    try:
-        plate_ids = [int(value) for value in form.getlist("plate_ids")]
-    except ValueError:
-        return _redirect("/results", "Invalid plate selection.", "error")
-    if len(plate_ids) > settings.max_candidates_per_run:
+    raw_values = [str(value) for value in form.getlist("plate_ids")]
+    selection = _validate_plate_id_selection(session, raw_values)
+    logger.info(
+        "Development selection preview received=%d raw=%s accepted=%d ids=%s "
+        "invalid=%s missing=%s",
+        len(raw_values),
+        raw_values,
+        len(selection.ids) - len(selection.missing_ids),
+        selection.ids,
+        selection.invalid_values,
+        selection.missing_ids,
+    )
+    if selection.invalid_values or selection.missing_ids:
+        return JSONResponse(
+            {
+                "detail": "Invalid or missing plate ID",
+                "invalid_values": selection.invalid_values,
+                "missing_ids": selection.missing_ids,
+            },
+            status_code=400,
+        )
+    return JSONResponse(
+        {"accepted_count": len(selection.ids), "plate_ids": selection.ids}
+    )
+
+
+@router.post("/runs/start")
+async def start_run(
+    request: Request, session: Session = Depends(get_db)
+) -> RedirectResponse:
+    form = await request.form()
+    raw_values = [str(value) for value in form.getlist("plate_ids")]
+    return_url = _safe_return_url(str(form.get("return_url", "/results")), "/results")
+    selection = _validate_plate_id_selection(session, raw_values)
+    if settings.development_mode:
+        logger.info(
+            "Run selection received=%d raw=%s accepted=%d ids=%s invalid=%s missing=%s",
+            len(raw_values),
+            raw_values,
+            len(selection.ids) - len(selection.missing_ids),
+            selection.ids,
+            selection.invalid_values,
+            selection.missing_ids,
+        )
+    if not raw_values:
+        return _redirect(return_url, "Select at least one plate first.", "error")
+    if selection.invalid_values or selection.missing_ids:
         return _redirect(
-            "/results",
-            f"A run may contain at most {settings.max_candidates_per_run} plates.",
+            return_url,
+            "The selection contained an invalid or missing plate ID. Nothing was started.",
+            "error",
+        )
+    plate_ids = selection.ids
+    if not plate_ids:
+        return _redirect(return_url, "Select at least one plate first.", "error")
+    if len(plate_ids) > settings.max_plates_per_run:
+        return _redirect(
+            return_url,
+            f"You selected {len(plate_ids)} plates; the configured maximum is "
+            f"{settings.max_plates_per_run}.",
             "error",
         )
     if (
@@ -624,7 +730,7 @@ async def start_run(request: Request) -> RedirectResponse:
         and form.get("confirm_large") != "yes"
     ):
         return _redirect(
-            "/results",
+            return_url,
             f"Runs above {settings.large_run_confirmation_threshold} plates require confirmation.",
             "error",
         )
@@ -638,7 +744,7 @@ async def start_run(request: Request) -> RedirectResponse:
             "warning",
         )
     except ValueError as exc:
-        return _redirect("/results", str(exc), "error")
+        return _redirect(return_url, str(exc), "error")
 
 
 @router.post("/runs/stop")

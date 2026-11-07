@@ -101,7 +101,7 @@
   </div>
   {% if import_report.valid %}
   <p class="supporting-callout">Adding plates saves them to your local library. Choose “{% if review_kind == 'upload' %}Import and check now{% else %}Add and check now{% endif %}” to immediately start checking the new plates through FLHSMV.</p>
-  <form action="{% if review_kind == 'upload' %}/imports/confirm{% else %}/plates/confirm{% endif %}" method="post" data-selection-form data-add-check-form data-threshold="{{ large_run_threshold }}">
+  <form action="{% if review_kind == 'upload' %}/imports/confirm{% else %}/plates/confirm{% endif %}" method="post" data-selection-form data-add-check-form data-threshold="{{ large_run_threshold }}" data-max-plates="{{ max_plates_per_run }}">
     <input type="hidden" name="confirm_large" value="no">
     <div class="selection-toolbar review-actions">
       <label><input type="checkbox" data-select-all checked> Select all valid plates</label>
@@ -157,7 +157,7 @@
         <div><span class="status-badge status-{{ latest_run.status|lower }}">{{ latest_run.status }}</span><strong>Run #{{ latest_run.id }}</strong></div>
         <p>{{ latest_run.checked_count }} of {{ latest_run.total_candidates }} checked</p>
         <div class="mini-progress"><span style="width: {{ (latest_run.checked_count / latest_run.total_candidates * 100) if latest_run.total_candidates else 0 }}%"></span></div>
-        <dl><div><dt>Available</dt><dd>{{ latest_run.available_count }}</dd></div><div><dt>Unavailable</dt><dd>{{ latest_run.unavailable_count }}</dd></div><div><dt>Started</dt><dd>{{ latest_run.started_at|datetime }}</dd></div></dl>
+        <dl><div><dt>Available</dt><dd>{{ latest_run.available_count }}</dd></div><div><dt>Avg. seconds/plate</dt><dd>{{ '%.1f'|format(latest_run.average_seconds_per_plate) }}</dd></div><div><dt>Retries</dt><dd>{{ latest_run.retry_count }}</dd></div></dl>
         {% if latest_run.error_message %}<p class="inline-error">{{ latest_run.error_message }}</p>{% endif %}
       </div>
     {% else %}<div class="empty-state"><strong>No runs yet</strong><p>Add plates, then check them from the plate library or start immediately after review.</p></div>{% endif %}

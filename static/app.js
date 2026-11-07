@@ -3,17 +3,44 @@
   const ACTIVE_RUN_STATUSES = ['queued', 'running', 'captcha', 'stopping'];
   let observedRunStatus = null;
 
+  function tablePlateChecks() {
+    return $$('input[type="checkbox"][data-plate-id][form="bulk-run"]:not(:disabled)');
+  }
+
+  function selectedTablePlateIds() {
+    const seen = new Set();
+    return tablePlateChecks()
+      .filter((item) => item.checked)
+      .map((item) => item.value.trim())
+      .filter((value) => /^\d+$/.test(value) && Number(value) > 0)
+      .filter((value) => {
+        if (seen.has(value)) return false;
+        seen.add(value);
+        return true;
+      });
+  }
+
+  function setBulkSelectionError(message = '') {
+    const target = document.querySelector('#bulk-run-error');
+    if (!target) return;
+    target.textContent = message;
+    target.hidden = !message;
+  }
+
   function refreshTableSelection() {
-    const checks = $$('[data-row-check]');
+    const checks = tablePlateChecks();
     const selected = checks.filter((item) => item.checked);
     const toggle = document.querySelector('[data-table-select-all]');
     const button = document.querySelector('#bulk-run-label');
+    const count = document.querySelector('#bulk-selection-count');
     if (toggle) {
       toggle.checked = selected.length === checks.length && checks.length > 0;
       toggle.indeterminate = selected.length > 0 && selected.length < checks.length;
+      toggle.disabled = checks.length === 0;
     }
+    if (count) count.textContent = `${selected.length} selected`;
+    if (selected.length) setBulkSelectionError();
     if (!button) return;
-    button.disabled = selected.length === 0;
     const checkedBefore = selected.filter((item) => item.dataset.checked === 'true').length;
     if (checkedBefore === 0) button.textContent = 'Check selected';
     else if (checkedBefore === selected.length) button.textContent = 'Recheck selected';
@@ -46,7 +73,7 @@
     });
 
     const tableToggle = document.querySelector('[data-table-select-all]');
-    const tableChecks = $$('[data-row-check]');
+    const tableChecks = tablePlateChecks();
     tableToggle?.addEventListener('change', () => {
       tableChecks.forEach((item) => { item.checked = tableToggle.checked; });
       refreshTableSelection();
@@ -58,9 +85,12 @@
   function selectedPlateCount(form) {
     const listedCount = Number(form.dataset.runCount || 0);
     if (listedCount) return listedCount;
-    const checkedIds = $$('input[name="plate_ids"]:checked', form).length;
-    if (checkedIds) return checkedIds;
-    return $$('input[name="plate_ids"][type="hidden"]', form).length;
+    if (form.matches('[data-visible-plate-selection]')) return selectedTablePlateIds().length;
+    return new Set(
+      $$('input[name="plate_ids"][type="hidden"]', form)
+        .map((item) => item.value.trim())
+        .filter((value) => /^\d+$/.test(value) && Number(value) > 0),
+    ).size;
   }
 
   function wireConfirmations() {
@@ -72,10 +102,27 @@
     $$('[data-large-run-form]').forEach((form) => {
       form.addEventListener('submit', (event) => {
         const selected = selectedPlateCount(form);
+        const isVisibleSelection = form.matches('[data-visible-plate-selection]');
         if (!selected) {
           event.preventDefault();
-          window.alert('Select at least one plate first.');
+          if (isVisibleSelection) setBulkSelectionError('Select at least one plate first.');
+          else window.alert('Select at least one plate first.');
           return;
+        }
+        const maximum = Number(form.dataset.maxPlates || 1000);
+        if (selected > maximum) {
+          event.preventDefault();
+          const message = `You selected ${selected} plates; the configured maximum is ${maximum}.`;
+          if (isVisibleSelection) setBulkSelectionError(message);
+          else window.alert(message);
+          return;
+        }
+        if (isVisibleSelection && form.dataset.development === 'true') {
+          const ids = selectedTablePlateIds();
+          const payload = [...new FormData(form).entries()].map(([key, value]) => [key, String(value)]);
+          console.debug('[Plate Research] checked boxes found:', ids.length);
+          console.debug('[Plate Research] selected plate IDs:', ids);
+          console.debug('[Plate Research] request payload:', payload);
         }
         const threshold = Number(form.dataset.threshold || 100);
         if (selected > threshold) {
@@ -95,6 +142,12 @@
         }
         const action = event.submitter?.value;
         const threshold = Number(form.dataset.threshold || 100);
+        const maximum = Number(form.dataset.maxPlates || 1000);
+        if (action === 'check_now' && selected > maximum) {
+          event.preventDefault();
+          window.alert(`You selected ${selected} plates; the configured maximum is ${maximum}.`);
+          return;
+        }
         if (action === 'check_now' && selected > threshold) {
           const ok = window.confirm(`This will add and check up to ${selected} plates serially and may take a while. Start the run?`);
           if (!ok) event.preventDefault();
@@ -170,6 +223,12 @@
     panel.querySelector('#run-checked').textContent = run.checked_count;
     panel.querySelector('#run-total').textContent = run.total_candidates;
     panel.querySelector('#run-batch').textContent = run.current_batch;
+    panel.querySelector('#run-batches-completed').textContent = run.batches_completed;
+    panel.querySelector('#run-elapsed').textContent = `${run.elapsed_seconds.toFixed(1)}s`;
+    panel.querySelector('#run-average').textContent = run.checked_count
+      ? `${run.average_seconds_per_plate.toFixed(1)}s/plate`
+      : '—';
+    panel.querySelector('#run-retries').textContent = run.retry_count;
     panel.querySelector('#run-available').textContent = run.available_count;
     panel.querySelector('#run-unavailable').textContent = run.unavailable_count;
     panel.querySelector('#run-invalid').textContent = run.invalid_count;

@@ -48,7 +48,7 @@ Availability checks use a **visible Playwright Chromium browser** and the offici
 
 ## Responsible-use safeguards
 
-The first version intentionally has no parallel checking, direct HTTP form replay, CAPTCHA solving, proxy or IP rotation, automatic reservation, continuous polling, scheduled monitoring, or hidden checking. Every run requires a user action. The default run limit is 500 candidates, and runs above 100 require an extra confirmation.
+The first version intentionally has no parallel checking, direct HTTP form replay, CAPTCHA solving, proxy or IP rotation, automatic reservation, continuous polling, scheduled monitoring, or hidden checking. Every run requires a user action. The default run limit is 1,000 candidates, and runs above 100 require an extra confirmation.
 
 ## Required software
 
@@ -201,13 +201,26 @@ Copy `.env.example` to `.env` and edit only the values you need. Safe defaults i
 DATA_DIRECTORY=user_data
 DATABASE_PATH=user_data/plates.db
 HEADLESS=false
-MIN_DELAY_SECONDS=5
-MAX_DELAY_SECONDS=10
+CHECK_SPEED_PROFILE=conservative
 MAX_BATCH_SIZE=5
-MAX_CANDIDATES_PER_RUN=500
+MAX_PLATES_PER_RUN=1000
 ```
 
 Keep `HEADLESS=false` for normal responsible use. Do not point `FLHSMV_URL` at unofficial services.
+
+`MAX_PLATES_PER_RUN` controls the longest run the interface and server will accept. The default is 1,000. Increasing it does not add parallelism; it only permits a longer serial browser session.
+
+Checking-speed profiles retain one visible Chromium page, use the official form's available fields (up to five), and keep CAPTCHA handling manual:
+
+| Profile | Batch delay | Result timeout | Retry delay | Retries |
+| --- | ---: | ---: | ---: | ---: |
+| `conservative` (default) | 5–10 seconds | 45 seconds | 3 seconds | 3 |
+| `balanced` | 3–6 seconds | 30 seconds | 2 seconds | 3 |
+| `faster` | 2–4 seconds | 25 seconds | 1.5 seconds | 2 |
+
+Set `CHECK_SPEED_PROFILE=balanced` or `CHECK_SPEED_PROFILE=faster` in `.env`. For individual control, set `CHECK_DELAY_MIN_SECONDS`, `CHECK_DELAY_MAX_SECONDS`, `RESULT_TIMEOUT_SECONDS`, `RETRY_DELAY_SECONDS`, or `MAX_RETRIES`. Older `MIN_DELAY_SECONDS`, `MAX_DELAY_SECONDS`, and `MAX_CANDIDATES_PER_RUN` values remain recognized for compatibility; remove them from an older `.env` when switching to profile-based timing.
+
+The checker reuses one browser page for the complete run, clears every official form field between batches, waits for submitted plate/result rows instead of network-idle, retries transient failures, and commits results once per batch. Run history records elapsed time, completed batches, average active seconds per plate, retries, errors, and manual CAPTCHA pause time separately.
 
 ## Original command-line checker
 
